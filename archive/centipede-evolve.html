@@ -1,0 +1,1039 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>CENTIPEDE_LAB // neuroevolution bench</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+<style>
+  :root {
+    --bg: #0d0f0c;
+    --panel: #14170f;
+    --line: #2a2f24;
+    --ink: #d4e4b8;
+    --dim: #6b7558;
+    --accent: #c9f24e;
+    --warn: #f28d4e;
+    --red: #e84c3d;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+    font-size: 13px;
+    overflow: hidden;
+  }
+  body {
+    background-image:
+      linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+  .app {
+    display: grid;
+    grid-template-columns: 260px 1fr 260px;
+    grid-template-rows: 40px 1fr 28px;
+    height: 100vh;
+    gap: 1px;
+    background: var(--line);
+  }
+  header, footer, aside, main {
+    background: var(--bg);
+  }
+  header {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    gap: 16px;
+    border-bottom: 1px solid var(--line);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    font-size: 11px;
+  }
+  header .logo {
+    color: var(--accent);
+    font-weight: 700;
+  }
+  header .logo::before {
+    content: "●";
+    color: var(--red);
+    margin-right: 6px;
+    animation: blink 1.4s infinite;
+  }
+  @keyframes blink {
+    0%, 60% { opacity: 1; }
+    61%, 100% { opacity: 0.2; }
+  }
+  header .sep { color: var(--dim); }
+  header .meta { color: var(--dim); }
+  header .meta b { color: var(--ink); font-weight: 400; }
+
+  aside {
+    padding: 14px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  aside.left { border-right: 1px solid var(--line); }
+  aside.right { border-left: 1px solid var(--line); }
+
+  .block h3 {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    color: var(--dim);
+    margin: 0 0 8px 0;
+    font-weight: 400;
+    border-bottom: 1px dashed var(--line);
+    padding-bottom: 4px;
+  }
+  .stat {
+    display: flex;
+    justify-content: space-between;
+    padding: 3px 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat .k { color: var(--dim); }
+  .stat .v { color: var(--ink); }
+  .stat .v.good { color: var(--accent); }
+  .stat .v.bad { color: var(--warn); }
+
+  button, select {
+    background: transparent;
+    color: var(--ink);
+    border: 1px solid var(--line);
+    font-family: inherit;
+    font-size: 11px;
+    padding: 6px 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+  button:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  button.primary {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  button.primary:hover {
+    background: var(--accent);
+    color: var(--bg);
+  }
+  button.warn:hover {
+    border-color: var(--warn);
+    color: var(--warn);
+  }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .row button { flex: 1; min-width: 0; }
+
+  .slider {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 6px;
+  }
+  .slider label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .slider label span { color: var(--ink); }
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    background: var(--line);
+    height: 2px;
+    outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 10px;
+    height: 14px;
+    background: var(--accent);
+    cursor: pointer;
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 10px;
+    height: 14px;
+    background: var(--accent);
+    cursor: pointer;
+    border: none;
+  }
+
+  main {
+    position: relative;
+    overflow: hidden;
+  }
+  #stage {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .overlay {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--dim);
+    pointer-events: none;
+    line-height: 1.8;
+  }
+  .overlay b { color: var(--ink); font-weight: 400; }
+  .overlay .gen { color: var(--accent); }
+  .corner {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    border: 1px solid var(--dim);
+  }
+  .corner.tl { top: 6px; left: 6px; border-right: none; border-bottom: none; }
+  .corner.tr { top: 6px; right: 6px; border-left: none; border-bottom: none; }
+  .corner.bl { bottom: 6px; left: 6px; border-right: none; border-top: none; }
+  .corner.br { bottom: 6px; right: 6px; border-left: none; border-top: none; }
+
+  footer {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    gap: 20px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--dim);
+    border-top: 1px solid var(--line);
+  }
+  footer .ok { color: var(--accent); }
+
+  .fitness-graph {
+    width: 100%;
+    height: 80px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+  }
+
+  .log {
+    height: 140px;
+    overflow-y: auto;
+    font-size: 10px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    padding: 6px 8px;
+    line-height: 1.5;
+  }
+  .log div { color: var(--dim); }
+  .log div b { color: var(--ink); font-weight: 400; }
+  .log div.hi b { color: var(--accent); }
+
+  .legend {
+    display: flex;
+    gap: 10px;
+    font-size: 10px;
+    color: var(--dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .legend span::before {
+    content: "■";
+    margin-right: 4px;
+  }
+  .legend .best::before { color: var(--accent); }
+  .legend .others::before { color: var(--dim); }
+  .legend .obstacle::before { color: var(--warn); }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="logo">CENTIPEDE_LAB</div>
+    <span class="sep">//</span>
+    <span class="meta">neuroevolution bench &nbsp; <b>v0.1</b></span>
+    <span class="sep">//</span>
+    <span class="meta">subject: <b>myriapoda-synthetica</b></span>
+    <span class="sep" style="margin-left:auto"></span>
+    <span class="meta" id="wallclock">00:00:00</span>
+  </header>
+
+  <aside class="left">
+    <div class="block">
+      <h3>Controls</h3>
+      <div class="row">
+        <button class="primary" id="btnRun">Run</button>
+        <button id="btnPause">Pause</button>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <button id="btnStep">Skip Gen</button>
+        <button class="warn" id="btnReset">Reset</button>
+      </div>
+    </div>
+
+    <div class="block">
+      <h3>Parameters</h3>
+      <div class="slider">
+        <label>Population <span id="lblPop">40</span></label>
+        <input type="range" id="slPop" min="10" max="80" step="2" value="40" />
+      </div>
+      <div class="slider">
+        <label>Mutation <span id="lblMut">0.15</span></label>
+        <input type="range" id="slMut" min="0.01" max="0.5" step="0.01" value="0.15" />
+      </div>
+      <div class="slider">
+        <label>Trial (s) <span id="lblTrial">15</span></label>
+        <input type="range" id="slTrial" min="5" max="30" step="1" value="15" />
+      </div>
+      <div class="slider">
+        <label>Sim Speed <span id="lblSpeed">1.0×</span></label>
+        <input type="range" id="slSpeed" min="1" max="8" step="1" value="1" />
+      </div>
+      <div class="slider">
+        <label>Segments <span id="lblSeg">8</span></label>
+        <input type="range" id="slSeg" min="4" max="14" step="1" value="8" />
+      </div>
+      <div class="slider">
+        <label>Obstacles <span id="lblObs">med</span></label>
+        <input type="range" id="slObs" min="0" max="3" step="1" value="2" />
+      </div>
+    </div>
+
+    <div class="block">
+      <h3>Legend</h3>
+      <div class="legend">
+        <span class="best">best</span>
+        <span class="others">pop</span>
+        <span class="obstacle">terrain</span>
+      </div>
+    </div>
+  </aside>
+
+  <main>
+    <canvas id="stage"></canvas>
+    <div class="overlay">
+      <div>gen <b class="gen" id="ovGen">0</b> &nbsp; trial <b id="ovTrial">0.00s</b></div>
+      <div>best <b id="ovBest">—</b> &nbsp; mean <b id="ovMean">—</b></div>
+      <div>live <b id="ovLive">0</b>/<b id="ovPop">0</b></div>
+    </div>
+    <div class="corner tl"></div>
+    <div class="corner tr"></div>
+    <div class="corner bl"></div>
+    <div class="corner br"></div>
+  </main>
+
+  <aside class="right">
+    <div class="block">
+      <h3>Fitness (per gen)</h3>
+      <canvas class="fitness-graph" id="graph"></canvas>
+      <div class="stat"><span class="k">gen</span><span class="v" id="sGen">0</span></div>
+      <div class="stat"><span class="k">best all-time</span><span class="v good" id="sAllBest">0.00</span></div>
+      <div class="stat"><span class="k">best this gen</span><span class="v" id="sBest">0.00</span></div>
+      <div class="stat"><span class="k">mean</span><span class="v" id="sMean">0.00</span></div>
+      <div class="stat"><span class="k">stddev</span><span class="v" id="sStd">0.00</span></div>
+    </div>
+
+    <div class="block">
+      <h3>Brain (best alive)</h3>
+      <div class="stat"><span class="k">inputs</span><span class="v" id="sInputs">—</span></div>
+      <div class="stat"><span class="k">hidden</span><span class="v" id="sHidden">—</span></div>
+      <div class="stat"><span class="k">outputs</span><span class="v" id="sOutputs">—</span></div>
+      <div class="stat"><span class="k">weights</span><span class="v" id="sWeights">—</span></div>
+    </div>
+
+    <div class="block">
+      <h3>Event log</h3>
+      <div class="log" id="log"></div>
+    </div>
+  </aside>
+
+  <footer>
+    <span class="ok">● ready</span>
+    <span>ga: tournament k=3 · elitism=2 · gaussian mutation</span>
+    <span>net: fc 2 hidden layers · tanh</span>
+    <span style="margin-left:auto" id="fps">— fps</span>
+  </footer>
+</div>
+
+<script>
+// ============================================================
+//  CENTIPEDE_LAB — neuroevolution of a segmented crawler
+// ============================================================
+
+const { Engine, World, Bodies, Body, Constraint, Composite, Vector } = Matter;
+
+// ---------- config ----------
+const CFG = {
+  pop: 40,
+  mutRate: 0.15,
+  mutStrength: 0.3,
+  trialSec: 15,
+  simSpeed: 1,
+  segments: 8,
+  obstacles: 2,
+  hidden: [10, 8],
+};
+
+// ---------- rng ----------
+function gauss() {
+  let u = 0, v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
+// ---------- neural net ----------
+class Net {
+  constructor(shape) {
+    this.shape = shape; // e.g. [inputs, 10, 8, outputs]
+    this.weights = [];
+    this.biases = [];
+    for (let i = 0; i < shape.length - 1; i++) {
+      const w = new Float32Array(shape[i] * shape[i+1]);
+      const b = new Float32Array(shape[i+1]);
+      const scale = Math.sqrt(2 / shape[i]);
+      for (let j = 0; j < w.length; j++) w[j] = gauss() * scale;
+      for (let j = 0; j < b.length; j++) b[j] = 0;
+      this.weights.push(w);
+      this.biases.push(b);
+    }
+  }
+  forward(inputs) {
+    let a = inputs;
+    for (let L = 0; L < this.weights.length; L++) {
+      const w = this.weights[L];
+      const b = this.biases[L];
+      const outLen = this.shape[L+1];
+      const inLen = this.shape[L];
+      const out = new Float32Array(outLen);
+      for (let o = 0; o < outLen; o++) {
+        let s = b[o];
+        for (let i = 0; i < inLen; i++) s += a[i] * w[o * inLen + i];
+        out[o] = Math.tanh(s);
+      }
+      a = out;
+    }
+    return a;
+  }
+  clone() {
+    const n = new Net(this.shape);
+    for (let i = 0; i < this.weights.length; i++) {
+      n.weights[i].set(this.weights[i]);
+      n.biases[i].set(this.biases[i]);
+    }
+    return n;
+  }
+  mutate(rate, strength) {
+    for (let i = 0; i < this.weights.length; i++) {
+      const w = this.weights[i];
+      const b = this.biases[i];
+      for (let j = 0; j < w.length; j++) {
+        if (Math.random() < rate) w[j] += gauss() * strength;
+      }
+      for (let j = 0; j < b.length; j++) {
+        if (Math.random() < rate) b[j] += gauss() * strength;
+      }
+    }
+  }
+  static crossover(a, b) {
+    const child = new Net(a.shape);
+    for (let L = 0; L < a.weights.length; L++) {
+      const wa = a.weights[L], wb = b.weights[L];
+      const ba = a.biases[L], bb = b.biases[L];
+      const wc = child.weights[L];
+      const bc = child.biases[L];
+      for (let j = 0; j < wc.length; j++) wc[j] = Math.random() < 0.5 ? wa[j] : wb[j];
+      for (let j = 0; j < bc.length; j++) bc[j] = Math.random() < 0.5 ? ba[j] : bb[j];
+    }
+    return child;
+  }
+  totalWeights() {
+    return this.weights.reduce((s, w) => s + w.length, 0) +
+           this.biases.reduce((s, b) => s + b.length, 0);
+  }
+}
+
+// ---------- creature ----------
+// a segmented body: N rigid segments joined by revolute constraints.
+// each joint has a motor driven by the net.
+// inputs: per segment (angle, angvel) + global (avgVx, avgVy, bias) + phase
+// outputs: per-joint target torque
+
+function makeCreature(world, x, y, numSegs) {
+  const segW = 22, segH = 10;
+  const gap = 2;
+  const segs = [];
+  for (let i = 0; i < numSegs; i++) {
+    const s = Bodies.rectangle(
+      x + i * (segW + gap),
+      y,
+      segW, segH,
+      {
+        friction: 0.9,
+        frictionStatic: 1.2,
+        density: 0.002,
+        collisionFilter: { group: -1 }, // segments of same creature don't self-collide
+        render: { visible: false },
+      }
+    );
+    segs.push(s);
+  }
+  const joints = [];
+  for (let i = 0; i < segs.length - 1; i++) {
+    const a = segs[i], b = segs[i+1];
+    const c = Constraint.create({
+      bodyA: a,
+      bodyB: b,
+      pointA: { x: segW/2 + gap/2, y: 0 },
+      pointB: { x: -segW/2 - gap/2, y: 0 },
+      stiffness: 0.9,
+      damping: 0.2,
+      length: 0,
+    });
+    joints.push(c);
+  }
+  Composite.add(world, segs);
+  Composite.add(world, joints);
+
+  return {
+    segs,
+    joints,
+    numSegs,
+    startX: x,
+    maxX: x,
+    alive: true,
+    ticks: 0,
+    fitness: 0,
+    maxFlipTime: 0,
+    flipTime: 0,
+  };
+}
+
+function removeCreature(world, cr) {
+  for (const s of cr.segs) Composite.remove(world, s);
+  for (const j of cr.joints) Composite.remove(world, j);
+  cr.segs = [];
+  cr.joints = [];
+}
+
+// build input vector for the net
+function sense(cr, phase) {
+  const n = cr.numSegs;
+  const inputs = new Float32Array(n * 2 + 3 + 2);
+  let avgVx = 0, avgVy = 0;
+  for (let i = 0; i < n; i++) {
+    const s = cr.segs[i];
+    // normalize angle to [-1, 1]
+    const a = Math.atan2(Math.sin(s.angle), Math.cos(s.angle));
+    inputs[i*2]   = a / Math.PI;
+    inputs[i*2+1] = Math.max(-3, Math.min(3, s.angularVelocity)) / 3;
+    avgVx += s.velocity.x;
+    avgVy += s.velocity.y;
+  }
+  avgVx /= n; avgVy /= n;
+  const base = n * 2;
+  inputs[base]   = Math.max(-5, Math.min(5, avgVx)) / 5;
+  inputs[base+1] = Math.max(-5, Math.min(5, avgVy)) / 5;
+  inputs[base+2] = 1; // bias
+  inputs[base+3] = Math.sin(phase);
+  inputs[base+4] = Math.cos(phase);
+  return inputs;
+}
+
+function act(cr, outputs) {
+  // outputs: one per joint (n-1), each in [-1, 1]; apply torque to adjacent segs
+  const torqueScale = 0.018;
+  for (let i = 0; i < cr.joints.length; i++) {
+    const t = outputs[i] * torqueScale;
+    Body.applyForce(cr.segs[i], cr.segs[i].position, { x: 0, y: -t * 0.01 });
+    // use angular impulse via setAngularVelocity nudge
+    cr.segs[i].torque     += -t * 0.15;
+    cr.segs[i+1].torque   +=  t * 0.15;
+  }
+}
+
+function creatureMaxX(cr) {
+  let mx = -Infinity;
+  for (const s of cr.segs) if (s.position.x > mx) mx = s.position.x;
+  return mx;
+}
+function creatureMeanX(cr) {
+  let sum = 0;
+  for (const s of cr.segs) sum += s.position.x;
+  return sum / cr.segs.length;
+}
+
+// ---------- world ----------
+const canvas = document.getElementById('stage');
+const ctx = canvas.getContext('2d');
+function resize() {
+  const rect = canvas.getBoundingClientRect();
+  canvas.width  = rect.width  * devicePixelRatio;
+  canvas.height = rect.height * devicePixelRatio;
+  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+}
+new ResizeObserver(resize).observe(canvas);
+resize();
+
+const engine = Engine.create();
+engine.gravity.y = 1.2;
+const world = engine.world;
+
+let groundBodies = [];
+function buildTerrain(level) {
+  for (const b of groundBodies) Composite.remove(world, b);
+  groundBodies = [];
+  // long ground strip
+  const groundLen = 6000;
+  const ground = Bodies.rectangle(groundLen/2 - 100, 500, groundLen, 40, {
+    isStatic: true, friction: 1.0,
+  });
+  groundBodies.push(ground);
+
+  // obstacles based on level 0..3
+  const densities = [0, 0.004, 0.009, 0.016];
+  const d = densities[level] || 0;
+  if (d > 0) {
+    for (let x = 400; x < groundLen - 300; x += 120) {
+      if (Math.random() < d * 120) {
+        const h = 10 + Math.random() * (10 + level * 10);
+        const w = 20 + Math.random() * 30;
+        const bump = Bodies.rectangle(x, 480 - h/2 + 20, w, h, {
+          isStatic: true, friction: 1.0, label: 'obstacle',
+        });
+        groundBodies.push(bump);
+      }
+    }
+    // occasional wall
+    for (let x = 800; x < groundLen - 300; x += 600) {
+      if (Math.random() < 0.4 + level * 0.15) {
+        const h = 25 + Math.random() * (10 + level * 20);
+        const wall = Bodies.rectangle(x + Math.random() * 200, 480 - h/2 + 20, 18, h, {
+          isStatic: true, friction: 1.0, label: 'obstacle',
+        });
+        groundBodies.push(wall);
+      }
+    }
+  }
+  Composite.add(world, groundBodies);
+}
+
+// ---------- population ----------
+let population = [];   // array of { net, creature, fitness }
+let generation = 0;
+let trialTime = 0;
+let running = false;
+let allTimeBest = 0;
+let history = [];      // per-gen best
+let startedAt = Date.now();
+
+function netShape() {
+  const n = CFG.segments;
+  const inputs = n * 2 + 3 + 2;
+  const outputs = n - 1;
+  return [inputs, ...CFG.hidden, outputs];
+}
+
+function spawnPop(fromNets) {
+  // clean old
+  for (const ind of population) if (ind.creature) removeCreature(world, ind.creature);
+  population = [];
+  const shape = netShape();
+  for (let i = 0; i < CFG.pop; i++) {
+    const net = fromNets && fromNets[i] ? fromNets[i] : new Net(shape);
+    const cr = makeCreature(world, 100, 460, CFG.segments);
+    population.push({ net, creature: cr, fitness: 0 });
+  }
+}
+
+function evaluateStep(dt) {
+  const phase = trialTime * 4;
+  for (const ind of population) {
+    const cr = ind.creature;
+    if (!cr.alive) continue;
+    const inputs = sense(cr, phase);
+    const out = ind.net.forward(inputs);
+    act(cr, out);
+    cr.ticks++;
+
+    // death conditions: flipped too long OR fell off world
+    const head = cr.segs[0];
+    // average angle
+    let avgAng = 0;
+    for (const s of cr.segs) avgAng += Math.abs(Math.atan2(Math.sin(s.angle), Math.cos(s.angle)));
+    avgAng /= cr.segs.length;
+    if (avgAng > 2.2) {
+      cr.flipTime += dt;
+      if (cr.flipTime > 2.5) cr.alive = false;
+    } else {
+      cr.flipTime = Math.max(0, cr.flipTime - dt);
+    }
+    if (head.position.y > 700) cr.alive = false;
+
+    const mx = creatureMaxX(cr);
+    if (mx > cr.maxX) cr.maxX = mx;
+  }
+}
+
+function finalizeGen() {
+  // fitness = distance + small bonus for mean advance (reward whole body progression)
+  for (const ind of population) {
+    const cr = ind.creature;
+    const dist = cr.maxX - cr.startX;
+    const meanAdv = creatureMeanX(cr) - cr.startX;
+    ind.fitness = Math.max(0, dist) + Math.max(0, meanAdv) * 0.1;
+  }
+  population.sort((a, b) => b.fitness - a.fitness);
+
+  const best = population[0].fitness;
+  const mean = population.reduce((s, p) => s + p.fitness, 0) / population.length;
+  const variance = population.reduce((s, p) => s + (p.fitness - mean) ** 2, 0) / population.length;
+  const std = Math.sqrt(variance);
+
+  if (best > allTimeBest) {
+    allTimeBest = best;
+    logLine(`gen ${generation}: <b>new record</b> ${best.toFixed(1)} px`, true);
+  } else {
+    logLine(`gen ${generation}: best ${best.toFixed(1)} · mean ${mean.toFixed(1)}`);
+  }
+
+  history.push({ gen: generation, best, mean, std });
+  if (history.length > 120) history.shift();
+
+  document.getElementById('sBest').textContent = best.toFixed(1);
+  document.getElementById('sMean').textContent = mean.toFixed(1);
+  document.getElementById('sStd').textContent  = std.toFixed(1);
+  document.getElementById('sAllBest').textContent = allTimeBest.toFixed(1);
+  document.getElementById('sGen').textContent = generation;
+  drawGraph();
+
+  // breed next generation
+  const nextNets = [];
+  // elitism: top 2
+  nextNets.push(population[0].net.clone());
+  nextNets.push(population[1].net.clone());
+  // tournament selection for the rest
+  while (nextNets.length < CFG.pop) {
+    const a = tournament(3);
+    const b = tournament(3);
+    const child = Net.crossover(a.net, b.net);
+    child.mutate(CFG.mutRate, CFG.mutStrength);
+    nextNets.push(child);
+  }
+  generation++;
+  trialTime = 0;
+  spawnPop(nextNets);
+}
+
+function tournament(k) {
+  let best = null;
+  for (let i = 0; i < k; i++) {
+    const c = population[Math.floor(Math.random() * population.length)];
+    if (!best || c.fitness > best.fitness) best = c;
+  }
+  return best;
+}
+
+// ---------- render ----------
+const graphCanvas = document.getElementById('graph');
+const gctx = graphCanvas.getContext('2d');
+function drawGraph() {
+  const w = graphCanvas.width  = graphCanvas.clientWidth * devicePixelRatio;
+  const h = graphCanvas.height = graphCanvas.clientHeight * devicePixelRatio;
+  gctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  const W = graphCanvas.clientWidth, H = graphCanvas.clientHeight;
+  gctx.clearRect(0, 0, W, H);
+  if (history.length < 2) return;
+  const maxV = Math.max(...history.map(h => h.best), 10);
+  // grid
+  gctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  gctx.lineWidth = 1;
+  for (let y = 0; y < 4; y++) {
+    gctx.beginPath();
+    gctx.moveTo(0, y * H / 4);
+    gctx.lineTo(W, y * H / 4);
+    gctx.stroke();
+  }
+  // mean
+  gctx.strokeStyle = '#6b7558';
+  gctx.lineWidth = 1;
+  gctx.beginPath();
+  history.forEach((p, i) => {
+    const x = (i / (history.length - 1)) * W;
+    const y = H - (p.mean / maxV) * H;
+    i === 0 ? gctx.moveTo(x, y) : gctx.lineTo(x, y);
+  });
+  gctx.stroke();
+  // best
+  gctx.strokeStyle = '#c9f24e';
+  gctx.lineWidth = 1.5;
+  gctx.beginPath();
+  history.forEach((p, i) => {
+    const x = (i / (history.length - 1)) * W;
+    const y = H - (p.best / maxV) * H;
+    i === 0 ? gctx.moveTo(x, y) : gctx.lineTo(x, y);
+  });
+  gctx.stroke();
+}
+
+let cameraX = 0;
+function render() {
+  const W = canvas.clientWidth, H = canvas.clientHeight;
+  ctx.clearRect(0, 0, W, H);
+
+  // follow best
+  let leader = null;
+  for (const ind of population) {
+    if (!ind.creature.alive) continue;
+    if (!leader || ind.creature.maxX > leader.creature.maxX) leader = ind;
+  }
+  const target = leader ? leader.creature.segs[Math.floor(leader.creature.segs.length/2)].position.x - W * 0.35 : 0;
+  cameraX += (target - cameraX) * 0.08;
+
+  ctx.save();
+  ctx.translate(-cameraX, 0);
+
+  // background grid (in world space)
+  ctx.strokeStyle = 'rgba(106, 117, 88, 0.08)';
+  ctx.lineWidth = 1;
+  const gx0 = Math.floor(cameraX / 60) * 60;
+  for (let x = gx0; x < cameraX + W + 60; x += 60) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0); ctx.lineTo(x, H);
+    ctx.stroke();
+  }
+
+  // distance markers
+  ctx.fillStyle = '#6b7558';
+  ctx.font = '10px "JetBrains Mono", monospace';
+  for (let x = 0; x < 6000; x += 200) {
+    if (x < cameraX - 50 || x > cameraX + W + 50) continue;
+    ctx.fillText(x + 'px', x + 4, 495);
+    ctx.strokeStyle = '#2a2f24';
+    ctx.beginPath();
+    ctx.moveTo(x, 478); ctx.lineTo(x, 484);
+    ctx.stroke();
+  }
+
+  // ground + obstacles
+  for (const b of groundBodies) {
+    const v = b.vertices;
+    if (b.label === 'obstacle') {
+      ctx.fillStyle = 'rgba(242, 141, 78, 0.18)';
+      ctx.strokeStyle = '#f28d4e';
+    } else {
+      ctx.fillStyle = 'rgba(42, 47, 36, 0.6)';
+      ctx.strokeStyle = '#3f4735';
+    }
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(v[0].x, v[0].y);
+    for (let i = 1; i < v.length; i++) ctx.lineTo(v[i].x, v[i].y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  // creatures — others first, then leader on top
+  for (const ind of population) {
+    if (ind === leader) continue;
+    drawCreature(ind, false);
+  }
+  if (leader) drawCreature(leader, true);
+
+  ctx.restore();
+
+  // HUD counters
+  let alive = 0;
+  for (const ind of population) if (ind.creature.alive) alive++;
+  document.getElementById('ovGen').textContent = generation;
+  document.getElementById('ovTrial').textContent = trialTime.toFixed(2) + 's';
+  document.getElementById('ovLive').textContent = alive;
+  document.getElementById('ovPop').textContent = population.length;
+
+  let curBest = 0;
+  for (const ind of population) {
+    const d = ind.creature.maxX - ind.creature.startX;
+    if (d > curBest) curBest = d;
+  }
+  document.getElementById('ovBest').textContent = curBest.toFixed(0) + 'px';
+  let meanD = 0;
+  for (const ind of population) meanD += ind.creature.maxX - ind.creature.startX;
+  meanD /= Math.max(1, population.length);
+  document.getElementById('ovMean').textContent = meanD.toFixed(0) + 'px';
+
+  if (leader) {
+    const sh = leader.net.shape;
+    document.getElementById('sInputs').textContent = sh[0];
+    document.getElementById('sHidden').textContent = sh.slice(1, -1).join('·');
+    document.getElementById('sOutputs').textContent = sh[sh.length - 1];
+    document.getElementById('sWeights').textContent = leader.net.totalWeights();
+  }
+}
+
+function drawCreature(ind, isLeader) {
+  const cr = ind.creature;
+  if (!cr.segs.length) return;
+  const color = isLeader ? '#c9f24e' : (cr.alive ? 'rgba(107, 117, 88, 0.45)' : 'rgba(107, 117, 88, 0.12)');
+  const eye = isLeader ? '#0d0f0c' : '#14170f';
+  ctx.lineWidth = isLeader ? 1.5 : 1;
+  // body segments
+  for (let i = 0; i < cr.segs.length; i++) {
+    const s = cr.segs[i];
+    const v = s.vertices;
+    ctx.fillStyle = color;
+    ctx.strokeStyle = isLeader ? '#d4e4b8' : 'rgba(212, 228, 184, 0.15)';
+    ctx.beginPath();
+    ctx.moveTo(v[0].x, v[0].y);
+    for (let j = 1; j < v.length; j++) ctx.lineTo(v[j].x, v[j].y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // tiny legs as decoration
+    if (isLeader || cr.alive) {
+      const ang = s.angle;
+      const px = s.position.x, py = s.position.y;
+      const lx = Math.cos(ang);
+      const ly = Math.sin(ang);
+      const nx = -ly, ny = lx;
+      ctx.strokeStyle = isLeader ? '#c9f24e' : 'rgba(107, 117, 88, 0.3)';
+      ctx.beginPath();
+      const legLen = 8;
+      ctx.moveTo(px + nx * 5, py + ny * 5);
+      ctx.lineTo(px + nx * (5 + legLen), py + ny * (5 + legLen));
+      ctx.moveTo(px - nx * 5, py - ny * 5);
+      ctx.lineTo(px - nx * (5 + legLen), py - ny * (5 + legLen));
+      ctx.stroke();
+    }
+  }
+  // head marker
+  const head = cr.segs[0];
+  ctx.fillStyle = eye;
+  ctx.beginPath();
+  ctx.arc(head.position.x - 6, head.position.y - 1, 1.8, 0, Math.PI * 2);
+  ctx.fill();
+  if (isLeader) {
+    // crown
+    ctx.fillStyle = '#c9f24e';
+    ctx.font = '9px "JetBrains Mono", monospace';
+    ctx.fillText('α', head.position.x - 14, head.position.y - 14);
+  }
+}
+
+// ---------- log ----------
+const logEl = document.getElementById('log');
+function logLine(html, hi) {
+  const d = document.createElement('div');
+  if (hi) d.className = 'hi';
+  const t = new Date();
+  const ts = t.toTimeString().slice(0, 8);
+  d.innerHTML = `<span style="color:#3f4735">[${ts}]</span> ${html}`;
+  logEl.appendChild(d);
+  while (logEl.children.length > 80) logEl.removeChild(logEl.firstChild);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+// ---------- main loop ----------
+let lastT = performance.now();
+let fpsSmoothed = 60;
+function loop(now) {
+  const dt = Math.min(0.05, (now - lastT) / 1000);
+  lastT = now;
+  fpsSmoothed = fpsSmoothed * 0.9 + (1/dt) * 0.1;
+  document.getElementById('fps').textContent = fpsSmoothed.toFixed(0) + ' fps';
+
+  if (running) {
+    const steps = CFG.simSpeed;
+    const sub = 1/60;
+    for (let i = 0; i < steps; i++) {
+      Engine.update(engine, sub * 1000);
+      evaluateStep(sub);
+      trialTime += sub;
+      if (trialTime >= CFG.trialSec) {
+        finalizeGen();
+        break;
+      }
+    }
+  }
+
+  // wall clock
+  const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+  const hh = String(Math.floor(elapsed/3600)).padStart(2,'0');
+  const mm = String(Math.floor(elapsed/60) % 60).padStart(2,'0');
+  const ss = String(elapsed % 60).padStart(2,'0');
+  document.getElementById('wallclock').textContent = `${hh}:${mm}:${ss}`;
+
+  render();
+  requestAnimationFrame(loop);
+}
+
+// ---------- wiring ----------
+function reset(fresh = true) {
+  if (fresh) {
+    generation = 0;
+    history = [];
+    allTimeBest = 0;
+    logLine('reset · new cohort initialized');
+  }
+  trialTime = 0;
+  buildTerrain(CFG.obstacles);
+  spawnPop(null);
+  drawGraph();
+}
+
+document.getElementById('btnRun').addEventListener('click', () => {
+  running = true;
+  logLine('running…');
+});
+document.getElementById('btnPause').addEventListener('click', () => {
+  running = false;
+  logLine('paused');
+});
+document.getElementById('btnStep').addEventListener('click', () => {
+  if (population.length) finalizeGen();
+});
+document.getElementById('btnReset').addEventListener('click', () => reset(true));
+
+function bindSlider(id, lblId, key, fmt) {
+  const el = document.getElementById(id);
+  const lbl = document.getElementById(lblId);
+  el.addEventListener('input', () => {
+    const v = parseFloat(el.value);
+    CFG[key] = v;
+    lbl.textContent = fmt ? fmt(v) : v;
+  });
+}
+bindSlider('slPop',   'lblPop',   'pop');
+bindSlider('slMut',   'lblMut',   'mutRate', v => v.toFixed(2));
+bindSlider('slTrial', 'lblTrial', 'trialSec');
+bindSlider('slSpeed', 'lblSpeed', 'simSpeed', v => v.toFixed(1) + '×');
+document.getElementById('slSeg').addEventListener('input', e => {
+  CFG.segments = parseInt(e.target.value);
+  document.getElementById('lblSeg').textContent = CFG.segments;
+  reset(true);
+});
+document.getElementById('slObs').addEventListener('input', e => {
+  CFG.obstacles = parseInt(e.target.value);
+  const labels = ['none','light','med','heavy'];
+  document.getElementById('lblObs').textContent = labels[CFG.obstacles];
+  buildTerrain(CFG.obstacles);
+});
+
+// init
+logLine('booted · myriapoda-synthetica ready');
+logLine('press <b>run</b> to start evolution');
+reset(true);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

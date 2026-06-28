@@ -1,5 +1,6 @@
-# DECIPEDE_LAB
 ![DECIPEDE_LAB](decipede.png)
+
+# DECIPEDE_LAB
 
 3D neuroevolution of a segmented crawler, in a single HTML file. A chain of hinge-jointed body segments with articulated legs learns to walk forward; gait emerges from evolved neural weights, not animation.
 

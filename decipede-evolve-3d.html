@@ -1,0 +1,1703 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>DECIPEDE_LAB // 3d neuroevolution bench</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --bg: #07080d;
+    --panel: #0d0f16;
+    --line: #1e2236;
+    --ink: #f5e6c8;
+    --dim: #6b6f86;
+    --accent: #ff8a3d;
+    --accent2: #ffd447;
+    --cool: #4a9fd4;
+    --red: #e24e1b;
+    --ok: #7fc76b;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+    font-size: 13px;
+    overflow: hidden;
+  }
+  body {
+    background-image:
+      linear-gradient(rgba(255,255,255,0.012) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.012) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+  .app {
+    display: grid;
+    grid-template-columns: 270px 1fr 270px;
+    grid-template-rows: 40px 1fr 28px;
+    height: 100vh;
+    gap: 1px;
+    background: var(--line);
+  }
+  header, footer, aside, main { background: var(--bg); }
+
+  header {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    gap: 16px;
+    border-bottom: 1px solid var(--line);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    font-size: 11px;
+  }
+  header .logo {
+    color: var(--accent);
+    font-weight: 700;
+    text-shadow: 0 0 12px rgba(255,138,61,0.45);
+  }
+  header .logo::before {
+    content: "●";
+    color: var(--red);
+    margin-right: 6px;
+    animation: blink 1.4s infinite;
+  }
+  @keyframes blink {
+    0%, 60% { opacity: 1; }
+    61%, 100% { opacity: 0.2; }
+  }
+  header .sep { color: var(--dim); }
+  header .meta { color: var(--dim); }
+  header .meta b { color: var(--ink); font-weight: 400; }
+
+  aside {
+    padding: 14px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  aside.left { border-right: 1px solid var(--line); }
+  aside.right { border-left: 1px solid var(--line); }
+
+  .block h3 {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    color: var(--dim);
+    margin: 0 0 8px 0;
+    font-weight: 400;
+    border-bottom: 1px dashed var(--line);
+    padding-bottom: 4px;
+  }
+  .stat {
+    display: flex;
+    justify-content: space-between;
+    padding: 3px 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat .k { color: var(--dim); }
+  .stat .v { color: var(--ink); }
+  .stat .v.good { color: var(--accent); }
+  .stat .v.warn { color: var(--red); }
+
+  button, select {
+    background: transparent;
+    color: var(--ink);
+    border: 1px solid var(--line);
+    font-family: inherit;
+    font-size: 11px;
+    padding: 6px 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button.primary { border-color: var(--accent); color: var(--accent); }
+  button.primary:hover { background: var(--accent); color: var(--bg); }
+  button.warn:hover { border-color: var(--red); color: var(--red); }
+  button.active { border-color: var(--accent); color: var(--accent); background: rgba(255,138,61,0.08); }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .row button { flex: 1; min-width: 0; }
+
+  .slider { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
+  .slider label {
+    display: flex; justify-content: space-between;
+    font-size: 10px; color: var(--dim);
+    text-transform: uppercase; letter-spacing: 0.1em;
+  }
+  .slider label span { color: var(--ink); }
+  input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    background: var(--line); height: 2px; outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 10px; height: 14px;
+    background: var(--accent); cursor: pointer;
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 10px; height: 14px;
+    background: var(--accent); cursor: pointer; border: none;
+  }
+
+  main { position: relative; overflow: hidden; }
+  #stage { display: block; width: 100%; height: 100%; }
+  .overlay {
+    position: absolute; top: 12px; left: 12px;
+    font-size: 10px; text-transform: uppercase;
+    letter-spacing: 0.15em; color: var(--dim);
+    pointer-events: none; line-height: 1.8;
+  }
+  .overlay b { color: var(--ink); font-weight: 400; }
+  .overlay .gen { color: var(--accent); }
+  .overlay .pts { color: var(--accent2); }
+  .corner { position: absolute; width: 10px; height: 10px; border: 1px solid var(--dim); }
+  .corner.tl { top: 6px; left: 6px; border-right: none; border-bottom: none; }
+  .corner.tr { top: 6px; right: 6px; border-left: none; border-bottom: none; }
+  .corner.bl { bottom: 6px; left: 6px; border-right: none; border-top: none; }
+  .corner.br { bottom: 6px; right: 6px; border-left: none; border-top: none; }
+
+  .cam-controls {
+    position: absolute; top: 12px; right: 12px;
+    display: flex; gap: 4px; font-size: 10px;
+  }
+  .cam-controls button { padding: 4px 8px; }
+
+  footer {
+    grid-column: 1 / -1;
+    display: flex; align-items: center;
+    padding: 0 14px; gap: 20px;
+    font-size: 10px;
+    text-transform: uppercase; letter-spacing: 0.15em;
+    color: var(--dim);
+    border-top: 1px solid var(--line);
+  }
+  footer .ok { color: var(--ok); }
+
+  .fitness-graph {
+    width: 100%; height: 80px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+  }
+  .log {
+    height: 140px; overflow-y: auto;
+    font-size: 10px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    padding: 6px 8px; line-height: 1.5;
+  }
+  .log div { color: var(--dim); }
+  .log div b { color: var(--ink); font-weight: 400; }
+  .log div.hi b { color: var(--accent); }
+  .log div.rec b { color: var(--accent2); }
+
+  .legend {
+    display: flex; gap: 10px;
+    font-size: 10px; color: var(--dim);
+    text-transform: uppercase; letter-spacing: 0.1em;
+    flex-wrap: wrap;
+  }
+  .legend span::before { content: "■"; margin-right: 4px; }
+  .legend .best::before { color: var(--accent); }
+  .legend .others::before { color: var(--cool); }
+  .legend .obstacle::before { color: var(--red); }
+  .legend .check::before { color: var(--accent2); }
+
+  .loading {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--bg);
+    color: var(--accent);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    z-index: 10;
+  }
+  .loading.hidden { display: none; }
+  .loading::before {
+    content: "▸ ";
+    animation: blink 0.9s infinite;
+  }
+</style>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+    "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"
+  }
+}
+</script>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="logo">DECIPEDE_LAB</div>
+    <span class="sep">//</span>
+    <span class="meta">3d neuroevolution bench &nbsp; <b>v0.2</b></span>
+    <span class="sep">//</span>
+    <span class="meta">subject: <b>myriapoda-ignis-digitalis</b></span>
+    <span class="sep" style="margin-left:auto"></span>
+    <span class="meta" id="wallclock">00:00:00</span>
+  </header>
+
+  <aside class="left">
+    <div class="block">
+      <h3>Simulation</h3>
+      <div class="row">
+        <button class="primary" id="btnRun">Run</button>
+        <button id="btnPause">Pause</button>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <button id="btnStep">Skip Gen</button>
+        <button class="warn" id="btnReset">Reset</button>
+      </div>
+    </div>
+
+    <div class="block">
+      <h3>Evolution Parameters</h3>
+      <div class="slider">
+        <label>Population <span id="lblPop">16</span></label>
+        <input type="range" id="slPop" min="4" max="32" step="2" value="16" />
+      </div>
+      <div class="slider">
+        <label>Mutation Rate <span id="lblMut">0.15</span></label>
+        <input type="range" id="slMut" min="0.01" max="0.5" step="0.01" value="0.15" />
+      </div>
+      <div class="slider">
+        <label>Mut Strength <span id="lblMutS">0.30</span></label>
+        <input type="range" id="slMutS" min="0.05" max="1.0" step="0.05" value="0.30" />
+      </div>
+      <div class="slider">
+        <label>Trial (s) <span id="lblTrial">18</span></label>
+        <input type="range" id="slTrial" min="5" max="40" step="1" value="18" />
+      </div>
+      <div class="slider">
+        <label>Sim Speed <span id="lblSpeed">1×</span></label>
+        <input type="range" id="slSpeed" min="1" max="6" step="1" value="1" />
+      </div>
+    </div>
+
+    <div class="block">
+      <h3>Body &amp; Terrain</h3>
+      <div class="slider">
+        <label>Segments <span id="lblSeg">10</span></label>
+        <input type="range" id="slSeg" min="4" max="16" step="1" value="10" />
+      </div>
+      <div class="slider">
+        <label>Obstacles <span id="lblObs">med</span></label>
+        <input type="range" id="slObs" min="0" max="3" step="1" value="2" />
+      </div>
+      <div class="slider">
+        <label>Spine Stiffness <span id="lblStiff">0.55</span></label>
+        <input type="range" id="slStiff" min="0" max="1" step="0.05" value="0.55" />
+      </div>
+      <div class="row" style="margin-top:6px">
+        <button id="btnTraining" class="primary active">Training Mode ON</button>
+      </div>
+      <div style="font-size: 9px; color: var(--dim); margin-top: 4px; line-height: 1.4;">
+        flat track · no obstacles · no checkpoints · pure-distance fitness
+      </div>
+    </div>
+
+    <div class="block">
+      <h3>Brain I/O</h3>
+      <div class="row">
+        <button id="btnExport" title="Download current best brain as JSON">Export ★</button>
+        <button id="btnImport" title="Load a brain from JSON file">Import</button>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <button id="btnLoadAuto" title="Reseed population from autosaved champion">Load Auto</button>
+        <button class="warn" id="btnClearAuto" title="Delete autosaved champion">Clear Auto</button>
+      </div>
+      <div class="stat" style="margin-top:6px"><span class="k">autosave</span><span class="v" id="sAutosave">—</span></div>
+      <input type="file" id="fileImport" accept=".json,application/json" style="display:none" />
+    </div>
+
+    <div class="block">
+      <h3>Legend</h3>
+      <div class="legend">
+        <span class="best">leader</span>
+        <span class="others">cohort</span>
+        <span class="obstacle">hurdle</span>
+        <span class="check">checkpoint</span>
+      </div>
+    </div>
+  </aside>
+
+  <main>
+    <canvas id="stage"></canvas>
+    <div class="overlay">
+      <div>gen <b class="gen" id="ovGen">0</b> &nbsp; trial <b id="ovTrial">0.00s</b></div>
+      <div>lead <b id="ovBest">—</b> &nbsp; mean <b id="ovMean">—</b></div>
+      <div>points <b class="pts" id="ovPts">0</b> &nbsp; live <b id="ovLive">0</b>/<b id="ovPop">0</b></div>
+    </div>
+    <div class="cam-controls">
+      <button id="btnCamFollow" class="active">follow</button>
+      <button id="btnCamFree">free</button>
+      <button id="btnCamOver">top</button>
+    </div>
+    <div class="corner tl"></div>
+    <div class="corner tr"></div>
+    <div class="corner bl"></div>
+    <div class="corner br"></div>
+    <div class="loading" id="loading">initializing physics and renderer</div>
+  </main>
+
+  <aside class="right">
+    <div class="block">
+      <h3>Fitness (per gen)</h3>
+      <canvas class="fitness-graph" id="graph"></canvas>
+      <div class="stat"><span class="k">gen</span><span class="v" id="sGen">0</span></div>
+      <div class="stat"><span class="k">best all-time</span><span class="v good" id="sAllBest">0.00</span></div>
+      <div class="stat"><span class="k">best this gen</span><span class="v" id="sBest">0.00</span></div>
+      <div class="stat"><span class="k">mean</span><span class="v" id="sMean">0.00</span></div>
+      <div class="stat"><span class="k">stddev</span><span class="v" id="sStd">0.00</span></div>
+    </div>
+
+    <div class="block">
+      <h3>Brain (leader)</h3>
+      <div class="stat"><span class="k">inputs</span><span class="v" id="sInputs">—</span></div>
+      <div class="stat"><span class="k">hidden</span><span class="v" id="sHidden">—</span></div>
+      <div class="stat"><span class="k">outputs</span><span class="v" id="sOutputs">—</span></div>
+      <div class="stat"><span class="k">weights</span><span class="v" id="sWeights">—</span></div>
+    </div>
+
+    <div class="block">
+      <h3>Event Log</h3>
+      <div class="log" id="log"></div>
+    </div>
+  </aside>
+
+  <footer>
+    <span class="ok">● ready</span>
+    <span>ga: tournament k=3 · elitism=2 · gaussian mutation</span>
+    <span>net: fc 2 hidden · tanh</span>
+    <span>physics: cannon-es · gl: three r160</span>
+    <span style="margin-left:auto" id="fps">— fps</span>
+  </footer>
+</div>
+
+<script type="module">
+// =========================================================================
+//  DECIPEDE_LAB — 3D neuroevolution of a segmented crawler
+//  body: chain of rigid segments, hinge-motor joints (yaw bending)
+//  control: per-segment leg thrust + per-joint motor speed
+//  fitness: forward displacement + checkpoint bonuses
+// =========================================================================
+
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import * as CANNON from 'cannon-es';
+
+// ---------- config ----------
+const CFG = {
+  pop: 16,
+  mutRate: 0.15,
+  mutStrength: 0.30,
+  trialSec: 18,
+  simSpeed: 1,
+  segments: 10,
+  obstacles: 2,
+  hidden: [14, 10],
+  maxMotorSpeed: 6.0,
+  maxMotorForce: 18.0,
+  thrustForce: 9.0,
+  spineStiff: 0.55,  // 0 = floppy worm, 1 = near-rigid spine; passive spring + angle limit per joint
+  trainingMode: true,  // flat track, no obstacles, no checkpoints — pure distance fitness for gait-learning
+  laneSpacing: 5.0,
+  segLen: 0.55,
+  segRadius: 0.22,
+  segMass: 0.6,
+  phaseFreq: 4.0,
+  groundLength: 120,
+  checkpointSpacing: 6,
+};
+
+// ---------- utility: gaussian ----------
+function gauss() {
+  let u = 0, v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
+// ---------- neural net (same topology pattern as v1) ----------
+class Net {
+  constructor(shape) {
+    this.shape = shape;
+    this.weights = [];
+    this.biases = [];
+    for (let i = 0; i < shape.length - 1; i++) {
+      const w = new Float32Array(shape[i] * shape[i+1]);
+      const b = new Float32Array(shape[i+1]);
+      const scale = Math.sqrt(2 / shape[i]);
+      for (let j = 0; j < w.length; j++) w[j] = gauss() * scale;
+      this.weights.push(w);
+      this.biases.push(b);
+    }
+  }
+  forward(inputs) {
+    let a = inputs;
+    for (let L = 0; L < this.weights.length; L++) {
+      const w = this.weights[L];
+      const b = this.biases[L];
+      const outLen = this.shape[L+1];
+      const inLen = this.shape[L];
+      const out = new Float32Array(outLen);
+      for (let o = 0; o < outLen; o++) {
+        let s = b[o];
+        const row = o * inLen;
+        for (let i = 0; i < inLen; i++) s += a[i] * w[row + i];
+        out[o] = Math.tanh(s);
+      }
+      a = out;
+    }
+    return a;
+  }
+  clone() {
+    const n = new Net(this.shape);
+    for (let i = 0; i < this.weights.length; i++) {
+      n.weights[i].set(this.weights[i]);
+      n.biases[i].set(this.biases[i]);
+    }
+    return n;
+  }
+  mutate(rate, strength) {
+    for (let i = 0; i < this.weights.length; i++) {
+      const w = this.weights[i];
+      const b = this.biases[i];
+      for (let j = 0; j < w.length; j++) if (Math.random() < rate) w[j] += gauss() * strength;
+      for (let j = 0; j < b.length; j++) if (Math.random() < rate) b[j] += gauss() * strength;
+    }
+  }
+  static crossover(a, b) {
+    const child = new Net(a.shape);
+    for (let L = 0; L < a.weights.length; L++) {
+      const wa = a.weights[L], wb = b.weights[L];
+      const ba = a.biases[L],  bb = b.biases[L];
+      const wc = child.weights[L], bc = child.biases[L];
+      for (let j = 0; j < wc.length; j++) wc[j] = Math.random() < 0.5 ? wa[j] : wb[j];
+      for (let j = 0; j < bc.length; j++) bc[j] = Math.random() < 0.5 ? ba[j] : bb[j];
+    }
+    return child;
+  }
+  totalWeights() {
+    return this.weights.reduce((s, w) => s + w.length, 0) +
+           this.biases.reduce((s, b) => s + b.length, 0);
+  }
+  toJSON() {
+    return {
+      shape: Array.from(this.shape),
+      weights: this.weights.map(w => Array.from(w)),
+      biases:  this.biases.map(b  => Array.from(b)),
+    };
+  }
+  static fromJSON(data) {
+    const n = new Net(data.shape);
+    for (let i = 0; i < data.weights.length; i++) {
+      n.weights[i].set(data.weights[i]);
+      n.biases[i].set(data.biases[i]);
+    }
+    return n;
+  }
+}
+
+function netShape() {
+  const n = CFG.segments;
+  // inputs: per-seg [yaw, angVelY, heightAboveGround] (3n) + globals [vx, sinphase, cosphase] (3)
+  const inputs = n * 3 + 3;
+  // outputs: (n-1) motor speeds + n leg thrusts
+  const outputs = (n - 1) + n;
+  return [inputs, ...CFG.hidden, outputs];
+}
+
+// ---------- three.js scene ----------
+const canvas = document.getElementById('stage');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setClearColor(0x07080d, 1);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x07080d, 30, 140);
+
+const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500);
+camera.position.set(-6, 6, 10);
+camera.lookAt(0, 0, 0);
+
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.target.set(0, 0, 0);
+controls.maxPolarAngle = Math.PI * 0.49;
+controls.minDistance = 3;
+controls.maxDistance = 60;
+
+// lighting
+scene.add(new THREE.AmbientLight(0x3a2a1a, 0.5));
+const hemi = new THREE.HemisphereLight(0xff9b55, 0x0a1530, 0.45);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xffc08a, 1.0);
+sun.position.set(-20, 30, 15);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+sun.shadow.camera.left = -40;
+sun.shadow.camera.right = 80;
+sun.shadow.camera.top = 30;
+sun.shadow.camera.bottom = -30;
+sun.shadow.camera.near = 1;
+sun.shadow.camera.far = 120;
+sun.shadow.bias = -0.0005;
+scene.add(sun);
+
+// grid/ground visual
+function makeGridTexture() {
+  const size = 512;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d');
+  g.fillStyle = '#0a0c14';
+  g.fillRect(0, 0, size, size);
+  g.strokeStyle = 'rgba(74, 159, 212, 0.35)';
+  g.lineWidth = 1;
+  const step = size / 16;
+  for (let i = 0; i <= 16; i++) {
+    g.beginPath();
+    g.moveTo(i * step, 0); g.lineTo(i * step, size);
+    g.moveTo(0, i * step); g.lineTo(size, i * step);
+    g.stroke();
+  }
+  g.strokeStyle = 'rgba(255, 138, 61, 0.35)';
+  g.lineWidth = 2;
+  g.strokeRect(0, 0, size, size);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 4;
+  return tex;
+}
+const groundTex = makeGridTexture();
+groundTex.repeat.set(CFG.groundLength / 2, 12);
+const groundGeo = new THREE.PlaneGeometry(CFG.groundLength * 1.2, 50);
+const groundMat = new THREE.MeshStandardMaterial({
+  map: groundTex,
+  roughness: 0.88,
+  metalness: 0.08,
+  color: 0x1a1e30,
+});
+const groundMesh = new THREE.Mesh(groundGeo, groundMat);
+groundMesh.rotation.x = -Math.PI / 2;
+groundMesh.position.x = CFG.groundLength / 2 - 10;
+groundMesh.receiveShadow = true;
+scene.add(groundMesh);
+
+// distant ridge/background (aesthetic)
+const ridgeMat = new THREE.MeshBasicMaterial({ color: 0x0a0f22, transparent: true, opacity: 0.9 });
+for (let k = 0; k < 3; k++) {
+  const g = new THREE.PlaneGeometry(300, 8 + k * 3);
+  const m = new THREE.Mesh(g, ridgeMat);
+  m.position.set(50, 4 + k * 2, -40 - k * 12);
+  scene.add(m);
+}
+
+// ---------- cannon world ----------
+const world = new CANNON.World();
+world.gravity.set(0, -18, 0);
+world.broadphase = new CANNON.SAPBroadphase(world);
+world.solver.iterations = 10;
+world.defaultContactMaterial.friction = 0.9;
+world.defaultContactMaterial.restitution = 0.02;
+
+// materials
+const groundMatP = new CANNON.Material('ground');
+const segMatP    = new CANNON.Material('segment');
+world.addContactMaterial(new CANNON.ContactMaterial(groundMatP, segMatP, {
+  friction: 1.15,
+  restitution: 0.02,
+}));
+
+// physics ground
+const groundBody = new CANNON.Body({
+  mass: 0,
+  material: groundMatP,
+  shape: new CANNON.Plane(),
+  collisionFilterGroup: 1,
+  collisionFilterMask:  0xFFFF,
+});
+groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1,0,0), -Math.PI / 2);
+world.addBody(groundBody);
+
+// collision groups
+// bit 0  = world (ground, obstacles)
+// bits 1..30 = per-creature segment group (own creature self-collides, cross-creature does not)
+// adjacent segments within a creature are exempted via HingeConstraint.collideConnected=false
+const G_WORLD = 1;
+function creatureGroupFor(i) { return (1 << ((i % 30) + 1)) >>> 0; }
+
+// ---------- obstacles / checkpoints ----------
+let obstacleBodies = [];
+let obstacleMeshes = [];
+let checkpointMeshes = [];
+let checkpointXs = [];
+
+function clearObstacles() {
+  for (const b of obstacleBodies) world.removeBody(b);
+  for (const m of obstacleMeshes) scene.remove(m);
+  for (const m of checkpointMeshes) scene.remove(m);
+  obstacleBodies = [];
+  obstacleMeshes = [];
+  checkpointMeshes = [];
+  checkpointXs = [];
+}
+
+function buildTerrain(level) {
+  clearObstacles();
+
+  // training mode: flat practice track only — no obstacles, no checkpoint rings,
+  // no checkpoint bonuses. creatures evolve pure locomotion before graduating to
+  // the obstacle course. switch off to restore the full course.
+  if (CFG.trainingMode) return;
+
+  // checkpoint markers (visual + reward points)
+  const cpMat = new THREE.MeshStandardMaterial({
+    color: 0xffd447, emissive: 0xffaa33, emissiveIntensity: 0.8,
+    metalness: 0.5, roughness: 0.35, transparent: true, opacity: 0.65
+  });
+  for (let x = CFG.checkpointSpacing; x < CFG.groundLength - 4; x += CFG.checkpointSpacing) {
+    checkpointXs.push(x);
+    const g = new THREE.TorusGeometry(1.6, 0.06, 8, 32);
+    const m = new THREE.Mesh(g, cpMat.clone());
+    m.position.set(x, 1.6, 0);
+    m.rotation.y = Math.PI / 2;
+    scene.add(m);
+    checkpointMeshes.push(m);
+  }
+
+  // hurdles / bumps / walls
+  const densities = [0, 0.25, 0.55, 0.90];
+  const d = densities[level] || 0;
+  if (d > 0) {
+    const obsMatTall = new THREE.MeshStandardMaterial({
+      color: 0x221820, emissive: 0x7a1a0c, emissiveIntensity: 0.4,
+      roughness: 0.5, metalness: 0.3,
+    });
+    const obsMatLow = new THREE.MeshStandardMaterial({
+      color: 0x1a1820, emissive: 0xc93818, emissiveIntensity: 0.35,
+      roughness: 0.5, metalness: 0.3,
+    });
+
+    for (let x = 5; x < CFG.groundLength - 4; x += 2.5 + Math.random() * 2.5) {
+      if (Math.random() > d) continue;
+      const kind = Math.random();
+      let hx, hy, hz, xOff;
+      if (kind < 0.55) {
+        // low bump — a ridge across a chunk of the lanes
+        hx = 0.3 + Math.random() * 0.3;
+        hy = 0.12 + Math.random() * (0.08 + level * 0.08);
+        hz = 4 + Math.random() * 3;
+        xOff = 0;
+      } else if (kind < 0.85) {
+        // taller wall
+        hx = 0.25 + Math.random() * 0.2;
+        hy = 0.25 + Math.random() * (0.15 + level * 0.15);
+        hz = 3 + Math.random() * 4;
+        xOff = 0;
+      } else {
+        // pillar
+        hx = 0.35;
+        hy = 0.6 + Math.random() * 0.8;
+        hz = 0.35;
+        xOff = (Math.random() - 0.5) * 6;
+      }
+      const shape = new CANNON.Box(new CANNON.Vec3(hx, hy, hz));
+      const body  = new CANNON.Body({
+        mass: 0,
+        material: groundMatP,
+        shape,
+        position: new CANNON.Vec3(x, hy, xOff),
+        collisionFilterGroup: G_WORLD,
+        collisionFilterMask:  0xFFFF,
+      });
+      world.addBody(body);
+      obstacleBodies.push(body);
+
+      const geo = new THREE.BoxGeometry(hx*2, hy*2, hz*2);
+      const mat = hy < 0.2 ? obsMatLow.clone() : obsMatTall.clone();
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(x, hy, xOff);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      scene.add(mesh);
+      obstacleMeshes.push(mesh);
+
+      // neon rim on top
+      const rimGeo = new THREE.BoxGeometry(hx*2 + 0.04, 0.03, hz*2 + 0.04);
+      const rimMat = new THREE.MeshBasicMaterial({ color: 0xff6020 });
+      const rim = new THREE.Mesh(rimGeo, rimMat);
+      rim.position.set(x, hy * 2 + 0.02, xOff);
+      scene.add(rim);
+      obstacleMeshes.push(rim);
+    }
+  }
+}
+
+// ---------- articulated leg (visual FK rig) ----------
+// anatomy: body ─ coxa ─ femur ─ tibia ─ tarsus (foot)
+// the nested THREE.Group pivots let us drive the whole leg with 3 rotations
+const _legChitin = new THREE.MeshStandardMaterial({
+  color: 0x3a1008, emissive: 0x7a1a08, emissiveIntensity: 0.18,
+  roughness: 0.55, metalness: 0.35,
+});
+const _legChitinDark = new THREE.MeshStandardMaterial({
+  color: 0x260806, emissive: 0x4a0a04, emissiveIntensity: 0.15,
+  roughness: 0.55, metalness: 0.35,
+});
+const _tarsusMat = new THREE.MeshStandardMaterial({
+  color: 0x160402, emissive: 0xff4010, emissiveIntensity: 0.55,
+  roughness: 0.4, metalness: 0.3,
+});
+
+function buildLeg(parent, sideSign) {
+  // attach at body side
+  const anchor = new THREE.Group();
+  anchor.position.set(0, -0.02, sideSign * (CFG.segRadius * 0.9));
+  parent.add(anchor);
+
+  // hip rotates: rotation.x = fore/aft swing, rotation.z = outward splay
+  const hip = new THREE.Group();
+  anchor.add(hip);
+
+  // coxa — short cylinder from hip going down
+  const coxa = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.024, 0.08, 6), _legChitin.clone());
+  coxa.position.y = -0.04;
+  hip.add(coxa);
+
+  // kneeUp pivot at bottom of coxa (forward/back bend)
+  const kneeUp = new THREE.Group();
+  kneeUp.position.y = -0.08;
+  hip.add(kneeUp);
+
+  const femur = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.018, 0.20, 6), _legChitin.clone());
+  femur.position.y = -0.10;
+  kneeUp.add(femur);
+
+  // kneeDown pivot at bottom of femur
+  const kneeDown = new THREE.Group();
+  kneeDown.position.y = -0.20;
+  kneeUp.add(kneeDown);
+
+  const tibia = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.013, 0.18, 6), _legChitinDark.clone());
+  tibia.position.y = -0.09;
+  kneeDown.add(tibia);
+
+  // ankle pivot at bottom of tibia
+  const ankle = new THREE.Group();
+  ankle.position.y = -0.18;
+  kneeDown.add(ankle);
+
+  const tarsus = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.006, 0.10, 5), _tarsusMat.clone());
+  tarsus.position.y = -0.05;
+  ankle.add(tarsus);
+
+  // store the leg length used for FK/foot-force calc
+  return {
+    anchor, hip, kneeUp, kneeDown, ankle,
+    sideSign,
+    // approximate total leg extension when fully vertical
+    reach: 0.08 + 0.20 + 0.18 + 0.10,
+    // lateral offset of anchor from body center
+    lateral: CFG.segRadius * 0.9,
+  };
+}
+
+// ---------- creature builder ----------
+// returns { bodies, hinges, meshes, group, laneZ, ... }
+function makeCreature(laneZ, creatureIdx) {
+  const n = CFG.segments;
+  const bodies = [];
+  const hinges = [];
+  const meshes = [];
+  const cGroup = creatureGroupFor(creatureIdx);
+  const cMask  = (G_WORLD | cGroup) >>> 0;
+
+  const group = new THREE.Group();
+  scene.add(group);
+
+  const startX = -1;
+  const startY = CFG.segRadius + 0.05;
+
+  // head is bodies[0], tail is bodies[n-1]
+  for (let i = 0; i < n; i++) {
+    const shape = new CANNON.Sphere(CFG.segRadius);
+    // mass tapers toward tail
+    const tmass = CFG.segMass * (1 - 0.3 * (i / (n - 1)));
+    const body = new CANNON.Body({
+      mass: tmass,
+      material: segMatP,
+      shape,
+      position: new CANNON.Vec3(startX + i * (CFG.segLen), startY, laneZ),
+      collisionFilterGroup: cGroup,
+      collisionFilterMask:  cMask,       // self-collide within creature, ignore other creatures
+      linearDamping: 0.08,
+      angularDamping: 0.12,
+    });
+    body.allowSleep = false;
+    world.addBody(body);
+    bodies.push(body);
+
+    // mesh: body segment (ellipsoid), rings, spikes
+    const segGroup = new THREE.Group();
+
+    // body sphere (stretched slightly to look wormy)
+    const bodyGeo = new THREE.SphereGeometry(CFG.segRadius, 14, 10);
+    bodyGeo.scale(1.25, 0.95, 0.95);
+    const bodyColor = new THREE.Color().lerpColors(
+      new THREE.Color(0xd42018),
+      new THREE.Color(0xff7822),
+      i / Math.max(1, n - 1)
+    );
+    const bodyMat = new THREE.MeshStandardMaterial({
+      color: bodyColor,
+      emissive: new THREE.Color(0xff3a0a),
+      emissiveIntensity: 0.32,
+      roughness: 0.48,
+      metalness: 0.15,
+    });
+    const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+    bodyMesh.castShadow = true;
+    bodyMesh.receiveShadow = true;
+    segGroup.add(bodyMesh);
+
+    // yellow concentric ring decal on top — 2 nested torii
+    const ringColor = new THREE.Color(0xffd447);
+    const ringMat = new THREE.MeshBasicMaterial({ color: ringColor });
+    const r1 = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.022, 6, 18), ringMat);
+    r1.rotation.x = Math.PI / 2;
+    r1.position.y = CFG.segRadius * 0.95;
+    segGroup.add(r1);
+    const r2 = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.018, 6, 16), ringMat);
+    r2.rotation.x = Math.PI / 2;
+    r2.position.y = CFG.segRadius * 0.96;
+    segGroup.add(r2);
+    const dot = new THREE.Mesh(
+      new THREE.SphereGeometry(0.025, 8, 6),
+      new THREE.MeshBasicMaterial({ color: 0xfff2a0 })
+    );
+    dot.position.y = CFG.segRadius * 0.97;
+    segGroup.add(dot);
+
+    // side spikes — two per side, angled back
+    const spikeMat = new THREE.MeshStandardMaterial({
+      color: 0x3a0a06, emissive: 0xff4010, emissiveIntensity: 0.25,
+      roughness: 0.4, metalness: 0.2,
+    });
+    for (let side = -1; side <= 1; side += 2) {
+      for (let s = -1; s <= 1; s += 2) {
+        const sp = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.18, 6), spikeMat);
+        sp.position.set(s * 0.10, 0.04, side * (CFG.segRadius + 0.02));
+        sp.rotation.x = side > 0 ? Math.PI / 2 : -Math.PI / 2;
+        sp.rotation.z = -side * 0.1;
+        segGroup.add(sp);
+      }
+    }
+
+    // legs — 4-segment articulated (coxa → femur → tibia → tarsus) per side
+    const legL = buildLeg(segGroup, -1);
+    const legR = buildLeg(segGroup,  1);
+
+    // head extras
+    if (i === 0) {
+      const eyeMat = new THREE.MeshBasicMaterial({ color: 0xfff2a0 });
+      const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 6), eyeMat);
+      eyeL.position.set(0.18, 0.06, -0.1);
+      const eyeR = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 6), eyeMat);
+      eyeR.position.set(0.18, 0.06, 0.1);
+      segGroup.add(eyeL);
+      segGroup.add(eyeR);
+      // mandibles
+      const mand = new THREE.MeshStandardMaterial({
+        color: 0x201010, emissive: 0xff4015, emissiveIntensity: 0.3,
+        roughness: 0.4,
+      });
+      const mL = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.18, 6), mand);
+      mL.position.set(0.27, -0.02, -0.08);
+      mL.rotation.z = -Math.PI / 2;
+      mL.rotation.y = 0.25;
+      const mR = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.18, 6), mand);
+      mR.position.set(0.27, -0.02, 0.08);
+      mR.rotation.z = -Math.PI / 2;
+      mR.rotation.y = -0.25;
+      segGroup.add(mL);
+      segGroup.add(mR);
+    }
+
+    group.add(segGroup);
+    meshes.push({ root: segGroup, body: bodyMesh, legL, legR, bodyMat });
+  }
+
+  // hinge constraints between successive segments (yaw axis = world Y)
+  for (let i = 0; i < n - 1; i++) {
+    const a = bodies[i], b = bodies[i+1];
+    const hinge = new CANNON.HingeConstraint(a, b, {
+      pivotA: new CANNON.Vec3(CFG.segLen * 0.5, 0, 0),
+      pivotB: new CANNON.Vec3(-CFG.segLen * 0.5, 0, 0),
+      axisA:  new CANNON.Vec3(0, 1, 0),
+      axisB:  new CANNON.Vec3(0, 1, 0),
+      collideConnected: false,
+      maxForce: 1e6,
+    });
+    world.addConstraint(hinge);
+    hinge.enableMotor();
+    hinge.setMotorMaxForce(CFG.maxMotorForce);
+    hinge.setMotorSpeed(0);
+    hinges.push(hinge);
+  }
+
+  return {
+    bodies, hinges, meshes, group,
+    laneZ,
+    startX,
+    maxX: startX,
+    alive: true,
+    uprightFail: 0,
+    ticks: 0,
+    fitness: 0,
+    checkpointsHit: 0,
+    lastCheckpointX: -Infinity,
+  };
+}
+
+function removeCreature(cr) {
+  for (const h of cr.hinges) world.removeConstraint(h);
+  for (const b of cr.bodies) world.removeBody(b);
+  scene.remove(cr.group);
+  cr.group.traverse(o => {
+    if (o.geometry) o.geometry.dispose?.();
+    if (o.material) {
+      if (Array.isArray(o.material)) o.material.forEach(m => m.dispose?.());
+      else o.material.dispose?.();
+    }
+  });
+  cr.bodies = [];
+  cr.hinges = [];
+  cr.meshes = [];
+}
+
+// ---------- sensing / acting ----------
+function quatYaw(q) {
+  // yaw around Y
+  return Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.x * q.x));
+}
+
+function sense(cr, phase) {
+  const n = cr.bodies.length;
+  const buf = new Float32Array(n * 3 + 3);
+  let vx = 0;
+  for (let i = 0; i < n; i++) {
+    const b = cr.bodies[i];
+    const yaw = quatYaw(b.quaternion);
+    buf[i*3]     = clamp(yaw / Math.PI, -1, 1);
+    buf[i*3 + 1] = clamp(b.angularVelocity.y / 8, -1, 1);
+    buf[i*3 + 2] = clamp((b.position.y - CFG.segRadius) / 0.6, -1, 1);
+    vx += b.velocity.x;
+  }
+  vx /= n;
+  const base = n * 3;
+  buf[base]     = clamp(vx / 5, -1, 1);
+  buf[base + 1] = Math.sin(phase);
+  buf[base + 2] = Math.cos(phase);
+  return buf;
+}
+
+// scratch vectors for per-foot force application (avoid per-frame allocs)
+const _footLocal = new CANNON.Vec3();
+const _footWorld = new CANNON.Vec3();
+const _footForce = new CANNON.Vec3();
+
+function act(cr, outputs) {
+  const n = cr.bodies.length;
+  const numJoints = n - 1;
+  // first (n-1) outputs: hinge motor speeds
+  for (let i = 0; i < numJoints; i++) {
+    cr.hinges[i].setMotorSpeed(outputs[i] * CFG.maxMotorSpeed);
+  }
+  // next n outputs: per-segment leg push — applied at each planted foot tip,
+  // in body-local +X, so the creature actually leverages the ground instead of
+  // sliding on its belly. both legs of a segment share the same thrust signal.
+  const thrustBase = numJoints;
+  const CONTACT_H = 0.14;  // foot y below which we count as planted
+  const FORWARD_REACH = 0.20;
+  const FOOT_LATERAL = CFG.segRadius + 0.30;
+  for (let i = 0; i < n; i++) {
+    const body = cr.bodies[i];
+    const cmd = outputs[thrustBase + i];
+    if (cmd <= 0.02) continue;
+    const segPhase = phaseT + i * 0.55;
+    for (let side = -1; side <= 1; side += 2) {
+      const ph = segPhase + (side > 0 ? 0 : Math.PI);
+      const swing = Math.sin(ph);
+      const lift  = Math.max(0, Math.sin(ph + Math.PI / 2));
+      // foot is planted when not in lift phase. Approx foot position in body-local frame:
+      //   forward: -swing × reach   (foot planted behind body while body moves forward)
+      //   vertical: tarsus hangs below, rises with lift
+      //   lateral: fixed offset outside body
+      if (lift > 0.25) continue;
+      _footLocal.set(-swing * FORWARD_REACH, -0.45 + lift * 0.35, side * FOOT_LATERAL);
+      // foot y in world space — only apply push when planted
+      body.pointToWorldFrame(_footLocal, _footWorld);
+      if (_footWorld.y >= CONTACT_H) continue;
+      const contact = Math.min(1, (CONTACT_H - _footWorld.y) * 12);
+      const mag = cmd * CFG.thrustForce * contact * 0.5; // 0.5: two feet share the cmd
+      // thrust direction: the body's local +X projected onto the horizontal plane.
+      // this removes the self-reinforcing pitch-up feedback loop where a nose-up
+      // body would get a nose-up component of thrust, tilting it further. now the
+      // forward push is always strictly horizontal regardless of body tilt.
+      _footForce.set(1, 0, 0);
+      body.vectorToWorldFrame(_footForce, _footForce);
+      _footForce.y = 0;
+      const hLen = Math.sqrt(_footForce.x * _footForce.x + _footForce.z * _footForce.z);
+      if (hLen < 1e-4) continue;
+      const scale = mag / hLen;
+      body.force.x += _footForce.x * scale;
+      body.force.z += _footForce.z * scale;
+    }
+  }
+}
+
+function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+function creatureMaxX(cr) {
+  let mx = -Infinity;
+  for (const b of cr.bodies) if (b.position.x > mx) mx = b.position.x;
+  return mx;
+}
+function creatureMeanX(cr) {
+  let sum = 0;
+  for (const b of cr.bodies) sum += b.position.x;
+  return sum / cr.bodies.length;
+}
+
+// ---------- population ----------
+let population = [];
+let generation = 0;
+let trialTime = 0;
+let phaseT = 0;
+let running = false;
+let allTimeBest = 0;
+let history = [];
+let startedAt = Date.now();
+
+function spawnPop(fromNets) {
+  // cleanup
+  for (const ind of population) if (ind.creature) removeCreature(ind.creature);
+  population = [];
+  const shape = netShape();
+  const laneCount = CFG.pop;
+  const z0 = -(laneCount - 1) * 0.5 * CFG.laneSpacing;
+  for (let i = 0; i < CFG.pop; i++) {
+    const net = fromNets && fromNets[i] ? fromNets[i] : new Net(shape);
+    const lane = z0 + i * CFG.laneSpacing;
+    const cr = makeCreature(lane, i);
+    population.push({ net, creature: cr, fitness: 0 });
+  }
+}
+
+// spine stiffness: passive spring + soft angle limit at each yaw hinge.
+// assumes upright bodies (yaw-around-world-Y approximation). quatYaw decomposition
+// is well-defined for near-upright orientations; creatures that stay flipped get
+// killed by the upright check anyway.
+function applySpineStiffness(cr) {
+  const stiff = CFG.spineStiff;
+  if (stiff < 0.01) return;
+  const K_SPRING = stiff * 2.0;
+  const K_DAMP   = stiff * 0.3;
+  // max bend shrinks from ~81° (floppy) to ~27° (stiff) as slider goes 0 → 1
+  const MAX_BEND = Math.PI * (0.45 - stiff * 0.30);
+  const LIMIT_K  = 2.5;
+  for (let i = 0; i < cr.hinges.length; i++) {
+    const a = cr.bodies[i];
+    const b = cr.bodies[i + 1];
+    const yawA = quatYaw(a.quaternion);
+    const yawB = quatYaw(b.quaternion);
+    let rel = yawB - yawA;
+    while (rel >  Math.PI) rel -= 2 * Math.PI;
+    while (rel < -Math.PI) rel += 2 * Math.PI;
+    let torque = -rel * K_SPRING;
+    if (rel >  MAX_BEND) torque -= (rel - MAX_BEND) * LIMIT_K;
+    if (rel < -MAX_BEND) torque -= (rel + MAX_BEND) * LIMIT_K;
+    const relVel = b.angularVelocity.y - a.angularVelocity.y;
+    torque -= relVel * K_DAMP;
+    a.torque.y -= torque;
+    b.torque.y += torque;
+  }
+}
+
+function evaluateStep(dt) {
+  phaseT += dt * CFG.phaseFreq;
+  for (const ind of population) {
+    const cr = ind.creature;
+    if (!cr.alive) continue;
+    applySpineStiffness(cr);
+    const inputs = sense(cr, phaseT);
+    const out = ind.net.forward(inputs);
+    act(cr, out);
+    cr.ticks++;
+
+    // death checks
+    const head = cr.bodies[0];
+    if (head.position.y < -4) cr.alive = false;
+
+    // upright check: average "up" vector projection
+    const up = new CANNON.Vec3(0, 1, 0);
+    let uprightAvg = 0;
+    for (const b of cr.bodies) {
+      const localUp = new CANNON.Vec3(0, 1, 0);
+      b.quaternion.vmult(localUp, localUp);
+      uprightAvg += localUp.dot(up);
+    }
+    uprightAvg /= cr.bodies.length;
+    if (uprightAvg < -0.2) {
+      cr.uprightFail += dt;
+      if (cr.uprightFail > 3.0) cr.alive = false;
+    } else {
+      cr.uprightFail = Math.max(0, cr.uprightFail - dt * 0.5);
+    }
+
+    const mx = creatureMaxX(cr);
+    if (mx > cr.maxX) cr.maxX = mx;
+
+    // checkpoint reward
+    while (cr.checkpointsHit < checkpointXs.length &&
+           cr.maxX >= checkpointXs[cr.checkpointsHit]) {
+      cr.checkpointsHit++;
+    }
+  }
+}
+
+function finalizeGen() {
+  for (const ind of population) {
+    const cr = ind.creature;
+    const dist = cr.maxX - cr.startX;
+    const meanAdv = creatureMeanX(cr) - cr.startX;
+    // base distance + tail-pulls-along bonus + checkpoint points (big!)
+    ind.fitness = Math.max(0, dist)
+                + Math.max(0, meanAdv) * 0.25
+                + cr.checkpointsHit * 4.0;
+  }
+  population.sort((a, b) => b.fitness - a.fitness);
+
+  const best = population[0].fitness;
+  const mean = population.reduce((s, p) => s + p.fitness, 0) / population.length;
+  const variance = population.reduce((s, p) => s + (p.fitness - mean) ** 2, 0) / population.length;
+  const std = Math.sqrt(variance);
+
+  const newRecord = best > allTimeBest;
+  if (newRecord) allTimeBest = best;
+
+  const leaderCP = population[0].creature.checkpointsHit;
+  logLine(
+    `gen ${generation}: best <b>${best.toFixed(1)}</b> · cp <b>${leaderCP}</b> · mean <b>${mean.toFixed(1)}</b>`,
+    newRecord ? 'rec' : (best > 2 ? 'hi' : '')
+  );
+
+  history.push({ gen: generation, best, mean, std });
+  if (history.length > 120) history.shift();
+
+  document.getElementById('sBest').textContent    = best.toFixed(2);
+  document.getElementById('sMean').textContent    = mean.toFixed(2);
+  document.getElementById('sStd').textContent     = std.toFixed(2);
+  document.getElementById('sAllBest').textContent = allTimeBest.toFixed(2);
+  document.getElementById('sGen').textContent     = generation;
+  drawGraph();
+
+  autosaveChampion();
+
+  // breed
+  const nextNets = [];
+  nextNets.push(population[0].net.clone());
+  nextNets.push(population[1].net.clone());
+  while (nextNets.length < CFG.pop) {
+    const a = tournament(3);
+    const b = tournament(3);
+    const child = Net.crossover(a.net, b.net);
+    child.mutate(CFG.mutRate, CFG.mutStrength);
+    nextNets.push(child);
+  }
+  generation++;
+  trialTime = 0;
+  phaseT = 0;
+  spawnPop(nextNets);
+}
+
+function tournament(k) {
+  let best = null;
+  for (let i = 0; i < k; i++) {
+    const c = population[Math.floor(Math.random() * population.length)];
+    if (!best || c.fitness > best.fitness) best = c;
+  }
+  return best;
+}
+
+// ---------- fitness graph ----------
+const graphCanvas = document.getElementById('graph');
+const gctx = graphCanvas.getContext('2d');
+function drawGraph() {
+  const w = graphCanvas.width  = graphCanvas.clientWidth * devicePixelRatio;
+  const h = graphCanvas.height = graphCanvas.clientHeight * devicePixelRatio;
+  gctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  const W = graphCanvas.clientWidth, H = graphCanvas.clientHeight;
+  gctx.clearRect(0, 0, W, H);
+  if (history.length < 2) return;
+  const maxV = Math.max(...history.map(h => h.best), 4);
+  gctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  gctx.lineWidth = 1;
+  for (let y = 0; y < 4; y++) {
+    gctx.beginPath(); gctx.moveTo(0, y * H / 4); gctx.lineTo(W, y * H / 4); gctx.stroke();
+  }
+  gctx.strokeStyle = '#6b6f86';
+  gctx.lineWidth = 1;
+  gctx.beginPath();
+  history.forEach((p, i) => {
+    const x = (i / (history.length - 1)) * W;
+    const y = H - (p.mean / maxV) * H;
+    i === 0 ? gctx.moveTo(x, y) : gctx.lineTo(x, y);
+  });
+  gctx.stroke();
+  gctx.strokeStyle = '#ff8a3d';
+  gctx.lineWidth = 1.5;
+  gctx.beginPath();
+  history.forEach((p, i) => {
+    const x = (i / (history.length - 1)) * W;
+    const y = H - (p.best / maxV) * H;
+    i === 0 ? gctx.moveTo(x, y) : gctx.lineTo(x, y);
+  });
+  gctx.stroke();
+}
+
+// ---------- visual sync: physics → three meshes ----------
+function syncVisuals(dt) {
+  // determine leader for highlight
+  let leader = null;
+  for (const ind of population) {
+    if (!ind.creature.alive) continue;
+    if (!leader || ind.creature.maxX > leader.creature.maxX) leader = ind;
+  }
+
+  for (const ind of population) {
+    const cr = ind.creature;
+    const isLeader = ind === leader;
+    for (let i = 0; i < cr.bodies.length; i++) {
+      const b = cr.bodies[i];
+      const m = cr.meshes[i];
+      if (!m || !m.root) continue;
+      m.root.position.set(b.position.x, b.position.y, b.position.z);
+      m.root.quaternion.set(b.quaternion.x, b.quaternion.y, b.quaternion.z, b.quaternion.w);
+
+      // leg animation — tripod-ish alternating gait per body segment
+      // each leg: hip swings fore/aft, kneeUp lifts during swing, kneeDown folds during lift,
+      // ankle compensates so tarsus stays roughly vertical while planted
+      const segPhase = phaseT + i * 0.55;
+      const legs = [m.legL, m.legR];
+      for (let k = 0; k < 2; k++) {
+        const L = legs[k];
+        const ph = segPhase + (L.sideSign > 0 ? 0 : Math.PI);
+        const swing = Math.sin(ph);                           // forward/back
+        const lift  = Math.max(0, Math.sin(ph + Math.PI / 2));// 0..1 during swing
+        // lateral splay — legs always angle outward, a little more during stance
+        L.hip.rotation.z = L.sideSign * (0.85 - lift * 0.15);
+        // fore/aft swing around X
+        L.hip.rotation.x = swing * 0.7;
+        // knee bend: high lift during swing
+        L.kneeUp.rotation.x = -lift * 1.1;
+        L.kneeDown.rotation.x = lift * 0.9 - 0.15;
+        L.ankle.rotation.x = -lift * 0.35 + 0.2;
+      }
+
+      // emissive breathe — leader brighter, dead very dim
+      const target = cr.alive ? (isLeader ? 0.75 : 0.30) : 0.05;
+      m.bodyMat.emissiveIntensity += (target - m.bodyMat.emissiveIntensity) * 0.08;
+      if (isLeader) m.bodyMat.emissive.setHex(0xff6020);
+      else          m.bodyMat.emissive.setHex(0xff3a0a);
+
+      // opacity/alpha via scale shrink if dead (visual clue only, dont need transparency)
+      const desiredScale = cr.alive ? 1.0 : 0.6;
+      m.root.scale.lerp(new THREE.Vector3(desiredScale, desiredScale, desiredScale), 0.05);
+    }
+  }
+
+  // leader highlight on checkpoints — pulse rings near leader
+  if (leader) {
+    const lx = leader.creature.maxX;
+    for (let i = 0; i < checkpointMeshes.length; i++) {
+      const cp = checkpointMeshes[i];
+      const passed = lx >= checkpointXs[i];
+      const pulse = 0.6 + Math.sin(phaseT * 2 + i) * 0.2;
+      cp.material.emissiveIntensity = passed ? 1.4 : pulse;
+      cp.material.opacity = passed ? 0.85 : 0.6;
+    }
+  }
+}
+
+// ---------- camera modes ----------
+const CAM = { mode: 'follow' };
+const camTarget = new THREE.Vector3(0, 0.5, 0);
+const camDesired = new THREE.Vector3();
+function updateCamera(dt) {
+  // pick leader or mean position
+  let leader = null;
+  for (const ind of population) {
+    if (!ind.creature.alive) continue;
+    if (!leader || ind.creature.maxX > leader.creature.maxX) leader = ind;
+  }
+  const focusBody = leader
+    ? leader.creature.bodies[Math.floor(leader.creature.bodies.length / 2)]
+    : null;
+  const focus = focusBody
+    ? new THREE.Vector3(focusBody.position.x, focusBody.position.y, focusBody.position.z)
+    : new THREE.Vector3(0, 0, 0);
+
+  camTarget.lerp(focus, 0.08);
+  controls.target.copy(camTarget);
+
+  if (CAM.mode === 'follow') {
+    camDesired.set(camTarget.x - 7, camTarget.y + 4.5, camTarget.z + 8);
+    camera.position.lerp(camDesired, 0.05);
+  } else if (CAM.mode === 'top') {
+    camDesired.set(camTarget.x, camTarget.y + 16, camTarget.z + 0.01);
+    camera.position.lerp(camDesired, 0.08);
+  }
+  // 'free' mode: user-controlled via OrbitControls; we still update target smoothly
+  controls.update();
+}
+
+// ---------- main loop ----------
+let lastT = performance.now();
+let fpsSmoothed = 60;
+const FIXED_STEP = 1 / 60;
+let accumulator = 0;
+
+function loop(now) {
+  const rawDt = Math.min(0.1, (now - lastT) / 1000);
+  lastT = now;
+  fpsSmoothed = fpsSmoothed * 0.9 + (1 / Math.max(rawDt, 0.001)) * 0.1;
+  document.getElementById('fps').textContent = fpsSmoothed.toFixed(0) + ' fps';
+
+  if (running) {
+    const speedMul = CFG.simSpeed;
+    accumulator += rawDt * speedMul;
+    let steps = 0;
+    while (accumulator >= FIXED_STEP && steps < 10) {
+      evaluateStep(FIXED_STEP);
+      world.step(FIXED_STEP);
+      trialTime += FIXED_STEP;
+      accumulator -= FIXED_STEP;
+      steps++;
+      if (trialTime >= CFG.trialSec) {
+        finalizeGen();
+        accumulator = 0;
+        break;
+      }
+    }
+  }
+
+  syncVisuals(rawDt);
+  updateCamera(rawDt);
+
+  // wall clock
+  const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+  const hh = String(Math.floor(elapsed/3600)).padStart(2,'0');
+  const mm = String(Math.floor(elapsed/60) % 60).padStart(2,'0');
+  const ss = String(elapsed % 60).padStart(2,'0');
+  document.getElementById('wallclock').textContent = `${hh}:${mm}:${ss}`;
+
+  // HUD
+  let alive = 0;
+  let curBest = 0;
+  let meanD = 0;
+  let leaderCP = 0;
+  let leader = null;
+  for (const ind of population) {
+    if (ind.creature.alive) alive++;
+    const d = ind.creature.maxX - ind.creature.startX;
+    if (d > curBest) { curBest = d; leader = ind; leaderCP = ind.creature.checkpointsHit; }
+    meanD += d;
+  }
+  meanD /= Math.max(1, population.length);
+  document.getElementById('ovGen').textContent = generation;
+  document.getElementById('ovTrial').textContent = trialTime.toFixed(2) + 's';
+  document.getElementById('ovLive').textContent = alive;
+  document.getElementById('ovPop').textContent = population.length;
+  document.getElementById('ovBest').textContent = curBest.toFixed(2) + 'm';
+  document.getElementById('ovMean').textContent = meanD.toFixed(2) + 'm';
+  document.getElementById('ovPts').textContent = leaderCP;
+
+  if (leader) {
+    const sh = leader.net.shape;
+    document.getElementById('sInputs').textContent = sh[0];
+    document.getElementById('sHidden').textContent = sh.slice(1, -1).join('·');
+    document.getElementById('sOutputs').textContent = sh[sh.length - 1];
+    document.getElementById('sWeights').textContent = leader.net.totalWeights();
+  }
+
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+}
+
+// ---------- log ----------
+const logEl = document.getElementById('log');
+function logLine(html, cls) {
+  const d = document.createElement('div');
+  if (cls) d.className = cls;
+  const t = new Date();
+  const ts = t.toTimeString().slice(0, 8);
+  d.innerHTML = `<span style="color:#3f4458">[${ts}]</span> ${html}`;
+  logEl.appendChild(d);
+  while (logEl.children.length > 80) logEl.removeChild(logEl.firstChild);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+// ---------- reset ----------
+function reset(fresh = true) {
+  if (fresh) {
+    generation = 0;
+    history = [];
+    allTimeBest = 0;
+    logLine('reset · fresh cohort initialized');
+  }
+  trialTime = 0;
+  phaseT = 0;
+  buildTerrain(CFG.obstacles);
+  spawnPop(null);
+  drawGraph();
+}
+
+// ---------- viewport / resize ----------
+function resize() {
+  const main = document.querySelector('main');
+  const w = main.clientWidth, h = main.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+new ResizeObserver(resize).observe(document.querySelector('main'));
+resize();
+
+// ---------- wiring ----------
+document.getElementById('btnRun').addEventListener('click', () => {
+  running = true;
+  logLine('running…');
+});
+document.getElementById('btnPause').addEventListener('click', () => {
+  running = false;
+  logLine('paused');
+});
+document.getElementById('btnStep').addEventListener('click', () => {
+  if (population.length) finalizeGen();
+});
+document.getElementById('btnReset').addEventListener('click', () => reset(true));
+
+function bindSlider(id, lblId, key, fmt) {
+  const el = document.getElementById(id);
+  const lbl = document.getElementById(lblId);
+  el.addEventListener('input', () => {
+    const v = parseFloat(el.value);
+    CFG[key] = v;
+    lbl.textContent = fmt ? fmt(v) : v;
+  });
+}
+bindSlider('slMut',   'lblMut',   'mutRate',     v => v.toFixed(2));
+bindSlider('slMutS',  'lblMutS',  'mutStrength', v => v.toFixed(2));
+bindSlider('slTrial', 'lblTrial', 'trialSec');
+bindSlider('slSpeed', 'lblSpeed', 'simSpeed',    v => v.toFixed(0) + '×');
+
+// pop and segments cause a reset
+document.getElementById('slPop').addEventListener('input', e => {
+  CFG.pop = parseInt(e.target.value);
+  document.getElementById('lblPop').textContent = CFG.pop;
+  reset(true);
+});
+document.getElementById('slSeg').addEventListener('input', e => {
+  CFG.segments = parseInt(e.target.value);
+  document.getElementById('lblSeg').textContent = CFG.segments;
+  reset(true);
+});
+document.getElementById('slObs').addEventListener('input', e => {
+  CFG.obstacles = parseInt(e.target.value);
+  const labels = ['none','light','med','heavy'];
+  document.getElementById('lblObs').textContent = labels[CFG.obstacles];
+  buildTerrain(CFG.obstacles);
+});
+document.getElementById('slStiff').addEventListener('input', e => {
+  CFG.spineStiff = parseFloat(e.target.value);
+  document.getElementById('lblStiff').textContent = CFG.spineStiff.toFixed(2);
+});
+document.getElementById('btnTraining').addEventListener('click', () => {
+  CFG.trainingMode = !CFG.trainingMode;
+  const btn = document.getElementById('btnTraining');
+  btn.textContent = CFG.trainingMode ? 'Training Mode ON' : 'Training Mode OFF';
+  btn.classList.toggle('active', CFG.trainingMode);
+  buildTerrain(CFG.obstacles);
+  logLine(CFG.trainingMode
+    ? 'training mode · flat track · pure-distance fitness'
+    : 'full course · obstacles + checkpoints active');
+});
+
+// camera buttons
+const camBtns = {
+  follow: document.getElementById('btnCamFollow'),
+  free:   document.getElementById('btnCamFree'),
+  top:    document.getElementById('btnCamOver'),
+};
+function setCam(mode) {
+  CAM.mode = mode;
+  for (const k in camBtns) camBtns[k].classList.toggle('active', k === mode);
+}
+camBtns.follow.addEventListener('click', () => setCam('follow'));
+camBtns.free.addEventListener('click',   () => setCam('free'));
+camBtns.top.addEventListener('click',    () => setCam('top'));
+
+// ---------- brain I/O ----------
+function autosaveKey() { return `decipede_champion_s${CFG.segments}_h${CFG.hidden.join('-')}`; }
+
+function buildChampionPayload() {
+  const best = population[0];
+  return {
+    type: 'decipede-brain',
+    version: 1,
+    timestamp: new Date().toISOString(),
+    generation,
+    fitness: best.fitness,
+    allTimeBest,
+    segments: CFG.segments,
+    hidden: CFG.hidden.slice(),
+    net: best.net.toJSON(),
+  };
+}
+
+function seedFromNet(net, meta) {
+  buildTerrain(CFG.obstacles);
+  const nets = [net.clone()];
+  for (let i = 1; i < CFG.pop; i++) {
+    const c = net.clone();
+    c.mutate(CFG.mutRate, CFG.mutStrength * 0.5);
+    nets.push(c);
+  }
+  generation   = (meta && meta.generation) || 0;
+  allTimeBest  = (meta && meta.allTimeBest) || (meta && meta.fitness) || 0;
+  trialTime = 0;
+  phaseT = 0;
+  spawnPop(nets);
+  drawGraph();
+  document.getElementById('sAllBest').textContent = allTimeBest.toFixed(2);
+  document.getElementById('sGen').textContent = generation;
+}
+
+function exportChampion() {
+  if (!population.length) { logLine('nothing to export yet'); return; }
+  const pop = [...population].sort((a,b) => b.fitness - a.fitness);
+  const tmpFirst = population[0];
+  population[0] = pop[0];
+  const payload = buildChampionPayload();
+  population[0] = tmpFirst;
+  const bestScore = Math.max(payload.fitness || 0, payload.allTimeBest || 0);
+  const name = `decipede-brain-s${CFG.segments}-gen${generation}-fit${bestScore.toFixed(1)}.json`;
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  logLine(`exported <b>${name}</b>`, 'hi');
+}
+
+async function importChampion(file) {
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if (data.type !== 'decipede-brain') throw new Error('not a decipede brain file');
+    if (!data.net || !data.net.shape) throw new Error('malformed net');
+
+    if (typeof data.segments === 'number' && data.segments !== CFG.segments) {
+      CFG.segments = data.segments;
+      const sl = document.getElementById('slSeg');
+      sl.value = data.segments;
+      document.getElementById('lblSeg').textContent = data.segments;
+    }
+    if (Array.isArray(data.hidden)) CFG.hidden = data.hidden.slice();
+    const net = Net.fromJSON(data.net);
+    seedFromNet(net, data);
+    logLine(`imported · gen <b>${data.generation||0}</b> fit <b>${(data.fitness||0).toFixed(2)}</b> · seeded ${CFG.pop} mutants`, 'rec');
+    updateAutosaveLabel();
+  } catch (e) {
+    logLine(`import failed · ${e.message}`, 'hi');
+  }
+}
+
+function autosaveChampion() {
+  try {
+    localStorage.setItem(autosaveKey(), JSON.stringify(buildChampionPayload()));
+    updateAutosaveLabel();
+  } catch (e) { /* storage full or disabled — silent */ }
+}
+
+function loadAutosave() {
+  try {
+    const raw = localStorage.getItem(autosaveKey());
+    if (!raw) { logLine('no autosave for this body shape'); return; }
+    const data = JSON.parse(raw);
+    const net = Net.fromJSON(data.net);
+    seedFromNet(net, data);
+    logLine(`autosave loaded · gen <b>${data.generation}</b> fit <b>${data.fitness.toFixed(2)}</b>`, 'rec');
+  } catch (e) {
+    logLine(`autosave load failed · ${e.message}`, 'hi');
+  }
+}
+
+function clearAutosave() {
+  try { localStorage.removeItem(autosaveKey()); } catch (e) {}
+  logLine('autosave cleared');
+  updateAutosaveLabel();
+}
+
+function updateAutosaveLabel() {
+  const el = document.getElementById('sAutosave');
+  try {
+    const raw = localStorage.getItem(autosaveKey());
+    if (!raw) { el.textContent = '—'; return; }
+    const data = JSON.parse(raw);
+    el.textContent = `g${data.generation} · ${data.fitness.toFixed(1)}`;
+  } catch (e) { el.textContent = '—'; }
+}
+
+document.getElementById('btnExport').addEventListener('click', exportChampion);
+document.getElementById('btnImport').addEventListener('click', () => {
+  document.getElementById('fileImport').click();
+});
+document.getElementById('fileImport').addEventListener('change', (e) => {
+  const f = e.target.files && e.target.files[0];
+  if (f) importChampion(f);
+  e.target.value = '';
+});
+document.getElementById('btnLoadAuto').addEventListener('click', loadAutosave);
+document.getElementById('btnClearAuto').addEventListener('click', clearAutosave);
+
+// re-label autosave when body size changes
+document.getElementById('slSeg').addEventListener('change', updateAutosaveLabel);
+
+// ---------- init ----------
+logLine('booted · myriapoda-ignis-digitalis ready');
+logLine('press <b>run</b> to start evolution · adjust params live');
+reset(true);
+updateAutosaveLabel();
+document.getElementById('loading').classList.add('hidden');
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
