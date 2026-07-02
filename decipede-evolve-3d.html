@@ -240,7 +240,7 @@
   <header>
     <div class="logo">DECIPEDE_LAB</div>
     <span class="sep">//</span>
-    <span class="meta">3d neuroevolution bench &nbsp; <b>v0.2</b></span>
+    <span class="meta">3d neuro-rl bench &nbsp; <b>v0.3</b></span>
     <span class="sep">//</span>
     <span class="meta">subject: <b>myriapoda-ignis-digitalis</b></span>
     <span class="sep" style="margin-left:auto"></span>
@@ -255,8 +255,33 @@
         <button id="btnPause">Pause</button>
       </div>
       <div class="row" style="margin-top:6px">
-        <button id="btnStep">Skip Gen</button>
+        <button id="btnStep" title="Force the current trial to end">Skip Gen</button>
         <button class="warn" id="btnReset">Reset</button>
+      </div>
+    </div>
+
+    <div class="block">
+      <h3>Training Regime</h3>
+      <div class="row">
+        <button id="btnModeLearn" class="primary active" title="Reinforcement learning — one policy learns from reward via backprop (PPO)">Learn</button>
+        <button id="btnModeEvolve" title="Genetic algorithm — a population of frozen brains, selection across generations">Evolve</button>
+      </div>
+      <div style="font-size: 9px; color: var(--dim); margin-top: 6px; line-height: 1.5;" id="modeBlurb">
+        <b style="color:var(--accent)">learn</b> · one shared brain drives all bodies as parallel envs; weights updated by gradient ascent on reward each trial. it genuinely improves within a run.
+      </div>
+      <div id="rlParams">
+        <div class="slider" style="margin-top:8px">
+          <label>Learning Rate <span id="lblLR">3.0e-3</span></label>
+          <input type="range" id="slLR" min="0.5" max="10" step="0.5" value="3" />
+        </div>
+        <div class="slider">
+          <label>Exploration <span id="lblEnt">0.006</span></label>
+          <input type="range" id="slEnt" min="0" max="0.05" step="0.002" value="0.006" />
+        </div>
+        <div class="slider">
+          <label>PPO Epochs <span id="lblEpochs">4</span></label>
+          <input type="range" id="slEpochs" min="1" max="10" step="1" value="4" />
+        </div>
       </div>
     </div>
 
@@ -361,8 +386,18 @@
       <div class="stat"><span class="k">stddev</span><span class="v" id="sStd">0.00</span></div>
     </div>
 
+    <div class="block" id="learnBlock">
+      <h3>Learning (PPO)</h3>
+      <div class="stat"><span class="k">updates</span><span class="v" id="sUpdates">0</span></div>
+      <div class="stat"><span class="k">mean reward</span><span class="v good" id="sReward">—</span></div>
+      <div class="stat"><span class="k">entropy</span><span class="v" id="sEntropy">—</span></div>
+      <div class="stat"><span class="k">policy loss</span><span class="v" id="sPLoss">—</span></div>
+      <div class="stat"><span class="k">value loss</span><span class="v" id="sVLoss">—</span></div>
+      <div class="stat"><span class="k">approx kl</span><span class="v" id="sKL">—</span></div>
+    </div>
+
     <div class="block">
-      <h3>Brain (leader)</h3>
+      <h3>Brain (policy)</h3>
       <div class="stat"><span class="k">inputs</span><span class="v" id="sInputs">—</span></div>
       <div class="stat"><span class="k">hidden</span><span class="v" id="sHidden">—</span></div>
       <div class="stat"><span class="k">outputs</span><span class="v" id="sOutputs">—</span></div>
@@ -377,8 +412,8 @@
 
   <footer>
     <span class="ok">● ready</span>
-    <span>ga: tournament k=3 · elitism=2 · gaussian mutation</span>
-    <span>net: fc 2 hidden · tanh</span>
+    <span id="footAlgo">rl: ppo · gae · adam · clipped surrogate</span>
+    <span>net: actor+critic · tanh</span>
     <span>physics: cannon-es · gl: three r160</span>
     <span style="margin-left:auto" id="fps">— fps</span>
   </footer>
@@ -398,6 +433,11 @@ import * as CANNON from 'cannon-es';
 
 // ---------- config ----------
 const CFG = {
+  // two training regimes share the same body/physics:
+  //   'evolve' — genetic algorithm, a population of frozen brains, selection across generations (no gradients)
+  //   'learn'  — reinforcement learning, ONE shared policy that updates its weights from reward via
+  //              backprop (PPO). the population becomes parallel environments feeding one learner.
+  mode: 'learn',
   pop: 16,
   mutRate: 0.15,
   mutStrength: 0.30,
@@ -405,7 +445,7 @@ const CFG = {
   simSpeed: 1,
   segments: 10,
   obstacles: 2,
-  hidden: [14, 10],
+  hidden: [14, 10],          // evolve-mode net hidden layers
   maxMotorSpeed: 6.0,
   maxMotorForce: 18.0,
   thrustForce: 9.0,
@@ -418,6 +458,20 @@ const CFG = {
   phaseFreq: 4.0,
   groundLength: 120,
   checkpointSpacing: 6,
+
+  // ---- reinforcement learning (learn mode) ----
+  rlHidden: [64, 48],   // actor + critic hidden layers (bigger: richer obs, per-side leg control)
+  lr: 3e-3,             // actor learning rate (Adam)
+  lrValue: 3e-3,        // critic learning rate
+  gamma: 0.99,          // discount
+  lambda: 0.95,         // GAE lambda
+  clipEps: 0.2,         // PPO clip
+  entCoef: 0.006,       // entropy bonus (exploration pressure)
+  vfCoef: 0.5,          // value-loss weight
+  ppoEpochs: 4,         // optimization passes per trial
+  miniBatch: 1024,      // SGD minibatch size
+  maxGradNorm: 0.5,     // global grad-norm clip
+  initLogStd: -0.9,     // initial action noise (std ~= 0.41)
 };
 
 // ---------- utility: gaussian ----------
@@ -516,6 +570,355 @@ function netShape() {
   // outputs: (n-1) motor speeds + n leg thrusts
   const outputs = (n - 1) + n;
   return [inputs, ...CFG.hidden, outputs];
+}
+
+// =========================================================================
+//  REINFORCEMENT LEARNING (learn mode)
+//  Unlike the GA, this actually learns from experience: the policy takes
+//  actions, gets a per-step reward, and updates its weights by gradient
+//  ascent on expected reward (PPO). The population's N bodies are used as N
+//  parallel environments all feeding one shared brain — more experience per
+//  wall-clock second, and the brain visibly improves within a single run.
+// =========================================================================
+
+// ---- learn-mode I/O spec ----
+// richer observation than evolve mode: the policy needs enough proprioception
+// to learn coordination on its own instead of leaning on a scripted wave.
+function learnObsDim() { return CFG.segments * 6 + 4; }
+// per side leg control (2 per segment) so the brain can discover left/right
+// timing itself, plus one motor speed per spine joint. nothing about the gait
+// is hardcoded here — the phase clock is only an *input*, not an actuator.
+function learnActDim() { return (CFG.segments - 1) + 2 * CFG.segments; }
+
+// ---------- trainable MLP: forward-with-cache, backprop, Adam ----------
+// small enough that hand-rolled backprop is faster than pulling in a tensor lib
+// and keeps the whole thing a single dependency-free HTML file.
+class MLP {
+  constructor(shape, outAct = 'tanh') {
+    this.shape = shape.slice();
+    this.outAct = outAct;               // 'tanh' (bounded) for actor mean, 'linear' for critic value
+    this.L = shape.length - 1;
+    this.W = []; this.B = [];
+    this.gW = []; this.gB = [];         // grad accumulators
+    this.mW = []; this.vW = []; this.mB = []; this.vB = [];  // Adam moments
+    for (let l = 0; l < this.L; l++) {
+      const inL = shape[l], outL = shape[l + 1];
+      const w = new Float32Array(inL * outL);
+      const scale = Math.sqrt(2 / inL);
+      for (let j = 0; j < w.length; j++) w[j] = gauss() * scale;
+      this.W.push(w);
+      this.B.push(new Float32Array(outL));
+      this.gW.push(new Float32Array(inL * outL));
+      this.gB.push(new Float32Array(outL));
+      this.mW.push(new Float32Array(inL * outL));
+      this.vW.push(new Float32Array(inL * outL));
+      this.mB.push(new Float32Array(outL));
+      this.vB.push(new Float32Array(outL));
+    }
+    this.t = 0;
+  }
+  // cache (optional {}) collects layer activations for a later backward()
+  forward(inp, cache) {
+    let a = inp;
+    if (cache) cache.acts = [a];
+    for (let l = 0; l < this.L; l++) {
+      const w = this.W[l], b = this.B[l];
+      const inL = this.shape[l], outL = this.shape[l + 1];
+      const isLast = l === this.L - 1;
+      const out = new Float32Array(outL);
+      for (let o = 0; o < outL; o++) {
+        let s = b[o];
+        const row = o * inL;
+        for (let i = 0; i < inL; i++) s += a[i] * w[row + i];
+        out[o] = (isLast && this.outAct === 'linear') ? s : Math.tanh(s);
+      }
+      a = out;
+      if (cache) cache.acts.push(a);
+    }
+    return a;
+  }
+  // dOut = dLoss/d(output activation). accumulates into gW/gB.
+  backward(cache, dOut) {
+    const acts = cache.acts;
+    let da = dOut;
+    for (let l = this.L - 1; l >= 0; l--) {
+      const inL = this.shape[l], outL = this.shape[l + 1];
+      const aOut = acts[l + 1], aIn = acts[l];
+      const isLast = l === this.L - 1;
+      const dz = new Float32Array(outL);
+      for (let o = 0; o < outL; o++) {
+        dz[o] = (isLast && this.outAct === 'linear') ? da[o] : da[o] * (1 - aOut[o] * aOut[o]);
+      }
+      const gw = this.gW[l], gb = this.gB[l];
+      for (let o = 0; o < outL; o++) {
+        const row = o * inL, d = dz[o];
+        gb[o] += d;
+        for (let i = 0; i < inL; i++) gw[row + i] += d * aIn[i];
+      }
+      if (l > 0) {
+        const w = this.W[l];
+        const daIn = new Float32Array(inL);
+        for (let o = 0; o < outL; o++) {
+          const row = o * inL, d = dz[o];
+          for (let i = 0; i < inL; i++) daIn[i] += d * w[row + i];
+        }
+        da = daIn;
+      }
+    }
+  }
+  zeroGrad() {
+    for (let l = 0; l < this.L; l++) { this.gW[l].fill(0); this.gB[l].fill(0); }
+  }
+  gradNorm() {
+    let s = 0;
+    for (let l = 0; l < this.L; l++) {
+      const gw = this.gW[l], gb = this.gB[l];
+      for (let j = 0; j < gw.length; j++) s += gw[j] * gw[j];
+      for (let j = 0; j < gb.length; j++) s += gb[j] * gb[j];
+    }
+    return Math.sqrt(s);
+  }
+  adamStep(lr, maxNorm) {
+    this.t++;
+    const b1 = 0.9, b2 = 0.999, eps = 1e-8;
+    let gscale = 1;
+    if (maxNorm) {
+      const gn = this.gradNorm();
+      if (gn > maxNorm) gscale = maxNorm / (gn + 1e-8);
+    }
+    const bc1 = 1 - Math.pow(b1, this.t);
+    const bc2 = 1 - Math.pow(b2, this.t);
+    for (let l = 0; l < this.L; l++) {
+      this._step(this.W[l], this.gW[l], this.mW[l], this.vW[l], lr, b1, b2, eps, bc1, bc2, gscale);
+      this._step(this.B[l], this.gB[l], this.mB[l], this.vB[l], lr, b1, b2, eps, bc1, bc2, gscale);
+    }
+  }
+  _step(p, g, m, v, lr, b1, b2, eps, bc1, bc2, gscale) {
+    for (let j = 0; j < p.length; j++) {
+      const grad = g[j] * gscale;
+      m[j] = b1 * m[j] + (1 - b1) * grad;
+      v[j] = b2 * v[j] + (1 - b2) * grad * grad;
+      const mhat = m[j] / bc1, vhat = v[j] / bc2;
+      p[j] -= lr * mhat / (Math.sqrt(vhat) + eps);
+    }
+  }
+  totalWeights() {
+    let s = 0;
+    for (let l = 0; l < this.L; l++) s += this.W[l].length + this.B[l].length;
+    return s;
+  }
+  toJSON() {
+    return {
+      shape: this.shape.slice(), outAct: this.outAct,
+      W: this.W.map(w => Array.from(w)),
+      B: this.B.map(b => Array.from(b)),
+    };
+  }
+  static fromJSON(d) {
+    const m = new MLP(d.shape, d.outAct || 'tanh');
+    for (let l = 0; l < m.L; l++) { m.W[l].set(d.W[l]); m.B[l].set(d.B[l]); }
+    return m;
+  }
+}
+
+// ---------- PPO trainer ----------
+// clipped-surrogate policy gradient with a value baseline, GAE advantages,
+// entropy bonus, advantage normalization and grad-norm clipping. the last two
+// are what keep it from diverging without a human tuning it live.
+class PPO {
+  constructor() {
+    const obs = learnObsDim(), act = learnActDim();
+    this.actDim = act;
+    this.actor = new MLP([obs, ...CFG.rlHidden, act], 'tanh');   // outputs action means in [-1,1]
+    this.critic = new MLP([obs, ...CFG.rlHidden, 1], 'linear');   // outputs state value
+    // state-independent log-std, learned alongside the actor (standard for continuous PPO)
+    this.logStd = new Float32Array(act).fill(CFG.initLogStd);
+    this.gLogStd = new Float32Array(act);
+    this.mLogStd = new Float32Array(act);
+    this.vLogStd = new Float32Array(act);
+    this.tStd = 0;
+    this.updates = 0;
+    this.lastStats = { pLoss: 0, vLoss: 0, entropy: 0, meanRew: 0, klApprox: 0 };
+  }
+  // pick an action: cache the actor forward so we don't recompute for value.
+  // returns { action (clamped, for the env), raw (sampled, for logprob), logp, value, mean }
+  act(obs) {
+    const mean = this.actor.forward(obs);
+    const value = this.critic.forward(obs)[0];
+    const raw = new Float32Array(this.actDim);
+    const clamped = new Float32Array(this.actDim);
+    let logp = 0;
+    const c = -0.5 * Math.log(2 * Math.PI);
+    for (let k = 0; k < this.actDim; k++) {
+      const std = Math.exp(this.logStd[k]);
+      const s = mean[k] + std * gauss();
+      raw[k] = s;
+      clamped[k] = s < -1 ? -1 : (s > 1 ? 1 : s);
+      const z = (s - mean[k]) / std;
+      logp += -0.5 * z * z - this.logStd[k] + c;
+    }
+    return { action: clamped, raw, logp, value };
+  }
+  // greedy (no exploration noise) — used when showing off a trained policy
+  actMean(obs) {
+    const mean = this.actor.forward(obs);
+    const clamped = new Float32Array(this.actDim);
+    for (let k = 0; k < this.actDim; k++) clamped[k] = mean[k] < -1 ? -1 : (mean[k] > 1 ? 1 : mean[k]);
+    return clamped;
+  }
+  logProbAt(mean, act) {
+    let logp = 0;
+    const c = -0.5 * Math.log(2 * Math.PI);
+    for (let k = 0; k < this.actDim; k++) {
+      const std = Math.exp(this.logStd[k]);
+      const z = (act[k] - mean[k]) / std;
+      logp += -0.5 * z * z - this.logStd[k] + c;
+    }
+    return logp;
+  }
+  // rollouts: array of per-env { obs[], act[], logp[], val[], rew[], done[], bootstrap, deadLast }
+  update(rollouts) {
+    const OBS = [], ACT = [], OLDLOGP = [], ADV = [], RET = [];
+    let rewSum = 0, rewCount = 0;
+    for (const r of rollouts) {
+      const T = r.rew.length;
+      if (T === 0) continue;
+      const adv = new Float32Array(T), ret = new Float32Array(T);
+      let lastGae = 0;
+      for (let t = T - 1; t >= 0; t--) {
+        const nextVal = t === T - 1 ? r.bootstrap : r.val[t + 1];
+        const nonTerm = t === T - 1 ? (r.deadLast ? 0 : 1) : (r.done[t] ? 0 : 1);
+        const delta = r.rew[t] + CFG.gamma * nextVal * nonTerm - r.val[t];
+        lastGae = delta + CFG.gamma * CFG.lambda * nonTerm * lastGae;
+        adv[t] = lastGae;
+        ret[t] = lastGae + r.val[t];
+        rewSum += r.rew[t]; rewCount++;
+      }
+      for (let t = 0; t < T; t++) {
+        OBS.push(r.obs[t]); ACT.push(r.act[t]);
+        OLDLOGP.push(r.logp[t]); ADV.push(adv[t]); RET.push(ret[t]);
+      }
+    }
+    const N = OBS.length;
+    if (N === 0) return this.lastStats;
+
+    // normalize advantages
+    let am = 0; for (let i = 0; i < N; i++) am += ADV[i]; am /= N;
+    let av = 0; for (let i = 0; i < N; i++) av += (ADV[i] - am) ** 2; av /= N;
+    const astd = Math.sqrt(av) + 1e-8;
+    for (let i = 0; i < N; i++) ADV[i] = (ADV[i] - am) / astd;
+
+    const idx = new Int32Array(N); for (let i = 0; i < N; i++) idx[i] = i;
+    const bs = Math.min(CFG.miniBatch, N);
+    let pLossAcc = 0, vLossAcc = 0, klAcc = 0, batches = 0;
+
+    for (let ep = 0; ep < CFG.ppoEpochs; ep++) {
+      // Fisher-Yates shuffle (Math.random is fine here — order only)
+      for (let i = N - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const tmp = idx[i]; idx[i] = idx[j]; idx[j] = tmp;
+      }
+      for (let start = 0; start < N; start += bs) {
+        const end = Math.min(start + bs, N);
+        const B = end - start;
+        const invB = 1 / B;
+        this.actor.zeroGrad(); this.critic.zeroGrad(); this.gLogStd.fill(0);
+        for (let bi = start; bi < end; bi++) {
+          const s = idx[bi];
+          const obs = OBS[s], a = ACT[s], A = ADV[s];
+          const cacheA = {}, cacheC = {};
+          const mean = this.actor.forward(obs, cacheA);
+          const val = this.critic.forward(obs, cacheC)[0];
+          const newLogp = this.logProbAt(mean, a);
+          const ratio = Math.exp(newLogp - OLDLOGP[s]);
+          klAcc += (OLDLOGP[s] - newLogp);
+          // PPO clipped surrogate: gradient flows only in the unclipped branch
+          let g;
+          if (A >= 0) g = ratio <= 1 + CFG.clipEps ? A * ratio : 0;
+          else        g = ratio >= 1 - CFG.clipEps ? A * ratio : 0;
+          pLossAcc += -Math.min(ratio * A, clamp(ratio, 1 - CFG.clipEps, 1 + CFG.clipEps) * A);
+          const coeff = -g * invB;                    // dL_policy/dlogp, batch-averaged
+          const dmean = new Float32Array(this.actDim);
+          for (let k = 0; k < this.actDim; k++) {
+            const std = Math.exp(this.logStd[k]);
+            const inv2 = 1 / (std * std);
+            const diff = a[k] - mean[k];
+            dmean[k] = coeff * (diff * inv2);
+            // log-std grad: policy term + entropy bonus (dEntropy/dlogStd = 1 per dim)
+            this.gLogStd[k] += coeff * (diff * diff * inv2 - 1) - CFG.entCoef * invB;
+          }
+          this.actor.backward(cacheA, dmean);
+          const dV = CFG.vfCoef * (val - RET[s]) * invB;
+          vLossAcc += 0.5 * (val - RET[s]) ** 2;
+          this.critic.backward(cacheC, Float32Array.of(dV));
+        }
+        this.actor.adamStep(CFG.lr, CFG.maxGradNorm);
+        this.critic.adamStep(CFG.lrValue, CFG.maxGradNorm);
+        this._stepLogStd(CFG.lr, CFG.maxGradNorm);
+        batches++;
+      }
+    }
+    let entropy = 0;
+    const ec = 0.5 * Math.log(2 * Math.PI * Math.E);
+    for (let k = 0; k < this.actDim; k++) entropy += this.logStd[k] + ec;
+    this.updates++;
+    this.lastStats = {
+      pLoss: pLossAcc / Math.max(1, N * CFG.ppoEpochs),
+      vLoss: vLossAcc / Math.max(1, N * CFG.ppoEpochs),
+      entropy: entropy / this.actDim,
+      meanRew: rewCount ? rewSum / rewCount : 0,
+      klApprox: klAcc / Math.max(1, N * CFG.ppoEpochs),
+    };
+    return this.lastStats;
+  }
+  _stepLogStd(lr, maxNorm) {
+    this.tStd++;
+    const b1 = 0.9, b2 = 0.999, eps = 1e-8;
+    let gscale = 1;
+    if (maxNorm) {
+      let gn = 0; for (let k = 0; k < this.actDim; k++) gn += this.gLogStd[k] ** 2;
+      gn = Math.sqrt(gn);
+      if (gn > maxNorm) gscale = maxNorm / (gn + 1e-8);
+    }
+    const bc1 = 1 - Math.pow(b1, this.tStd), bc2 = 1 - Math.pow(b2, this.tStd);
+    for (let k = 0; k < this.actDim; k++) {
+      const grad = this.gLogStd[k] * gscale;
+      this.mLogStd[k] = b1 * this.mLogStd[k] + (1 - b1) * grad;
+      this.vLogStd[k] = b2 * this.vLogStd[k] + (1 - b2) * grad * grad;
+      const mhat = this.mLogStd[k] / bc1, vhat = this.vLogStd[k] / bc2;
+      this.logStd[k] -= lr * mhat / (Math.sqrt(vhat) + eps);
+      // keep noise in a sane band: not so low it stops exploring, not so high it thrashes
+      if (this.logStd[k] < -2.5) this.logStd[k] = -2.5;
+      if (this.logStd[k] > 0.5) this.logStd[k] = 0.5;
+    }
+  }
+  totalParams() {
+    let s = this.logStd.length;
+    for (let l = 0; l < this.actor.L; l++) s += this.actor.W[l].length + this.actor.B[l].length;
+    for (let l = 0; l < this.critic.L; l++) s += this.critic.W[l].length + this.critic.B[l].length;
+    return s;
+  }
+  toJSON() {
+    return {
+      actDim: this.actDim,
+      actor: this.actor.toJSON(),
+      critic: this.critic.toJSON(),
+      logStd: Array.from(this.logStd),
+    };
+  }
+  static fromJSON(d) {
+    const p = Object.create(PPO.prototype);
+    p.actDim = d.actDim;
+    p.actor = MLP.fromJSON(d.actor);
+    p.critic = MLP.fromJSON(d.critic);
+    p.logStd = Float32Array.from(d.logStd);
+    p.gLogStd = new Float32Array(p.actDim);
+    p.mLogStd = new Float32Array(p.actDim);
+    p.vLogStd = new Float32Array(p.actDim);
+    p.tStd = 0; p.updates = 0;
+    p.lastStats = { pLoss: 0, vLoss: 0, entropy: 0, meanRew: 0, klApprox: 0 };
+    return p;
+  }
 }
 
 // ---------- three.js scene ----------
@@ -1073,6 +1476,101 @@ function act(cr, outputs) {
 
 function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
+// ---------- learn-mode sensing / acting ----------
+const _luS = new CANNON.Vec3();
+function senseLearn(cr, phase) {
+  const n = cr.bodies.length;
+  const buf = new Float32Array(n * 6 + 4);
+  let vx = 0, vz = 0;
+  for (let i = 0; i < n; i++) {
+    const b = cr.bodies[i];
+    const yaw = quatYaw(b.quaternion);
+    _luS.set(0, 1, 0); b.quaternion.vmult(_luS, _luS);
+    const seg = i * 6;
+    buf[seg]     = clamp(yaw / Math.PI, -1, 1);
+    buf[seg + 1] = clamp(b.angularVelocity.y / 8, -1, 1);
+    buf[seg + 2] = clamp((b.position.y - CFG.segRadius) / 0.6, -1, 1);
+    buf[seg + 3] = clamp(_luS.y, -1, 1);                 // how upright this segment is
+    // per-side phase reference: a rhythm clock the policy MAY use to time its
+    // pushes. it is an input, not a command — the coordination is learned.
+    const segPhase = phase + i * 0.55;
+    buf[seg + 4] = Math.sin(segPhase);                   // left leg clock
+    buf[seg + 5] = Math.sin(segPhase + Math.PI);         // right leg clock
+    vx += b.velocity.x; vz += b.velocity.z;
+  }
+  vx /= n; vz /= n;
+  const base = n * 6;
+  buf[base]     = clamp(vx / 5, -1, 1);
+  buf[base + 1] = clamp(vz / 5, -1, 1);
+  buf[base + 2] = Math.sin(phase);
+  buf[base + 3] = Math.cos(phase);
+  return buf;
+}
+
+function actLearn(cr, action) {
+  const n = cr.bodies.length;
+  const numJoints = n - 1;
+  for (let i = 0; i < numJoints; i++) {
+    cr.hinges[i].setMotorSpeed(action[i] * CFG.maxMotorSpeed);
+  }
+  // per-side leg drive: 2 signed commands per segment. positive pushes the body
+  // forward off a planted foot, negative brakes/reverses (lets it learn turns and
+  // recovery). the stance clock only decides whether a foot is down to push on;
+  // the policy decides how hard and in which direction, per leg.
+  const legBase = numJoints;
+  const CONTACT_H = 0.14, FORWARD_REACH = 0.20, FOOT_LATERAL = CFG.segRadius + 0.30;
+  for (let i = 0; i < n; i++) {
+    const body = cr.bodies[i];
+    const segPhase = phaseT + i * 0.55;
+    for (let sIdx = 0; sIdx < 2; sIdx++) {
+      const side = sIdx === 0 ? -1 : 1;
+      const cmd = action[legBase + i * 2 + sIdx];
+      if (Math.abs(cmd) <= 0.02) continue;
+      const ph = segPhase + (side > 0 ? 0 : Math.PI);
+      const swing = Math.sin(ph);
+      const lift  = Math.max(0, Math.sin(ph + Math.PI / 2));
+      if (lift > 0.25) continue;
+      _footLocal.set(-swing * FORWARD_REACH, -0.45 + lift * 0.35, side * FOOT_LATERAL);
+      body.pointToWorldFrame(_footLocal, _footWorld);
+      if (_footWorld.y >= CONTACT_H) continue;
+      const contact = Math.min(1, (CONTACT_H - _footWorld.y) * 12);
+      const mag = cmd * CFG.thrustForce * contact;        // signed
+      _footForce.set(1, 0, 0);
+      body.vectorToWorldFrame(_footForce, _footForce);
+      _footForce.y = 0;
+      const hLen = Math.sqrt(_footForce.x * _footForce.x + _footForce.z * _footForce.z);
+      if (hLen < 1e-4) continue;
+      const scale = mag / hLen;
+      body.force.x += _footForce.x * scale;
+      body.force.z += _footForce.z * scale;
+    }
+  }
+}
+
+// dense per-step reward: forward progress dominates, with small shaping to stay
+// upright and alive. this is what the policy climbs — the GA never had a reward
+// signal this fine-grained, it only saw one number at the end of a whole trial.
+const _luR = new CANNON.Vec3();
+function rewardLearn(cr, dt) {
+  const meanX = creatureMeanX(cr);
+  const progress = meanX - cr.prevMeanX;
+  cr.prevMeanX = meanX;
+  let upright = 0;
+  for (const b of cr.bodies) { _luR.set(0, 1, 0); b.quaternion.vmult(_luR, _luR); upright += _luR.y; }
+  upright /= cr.bodies.length;
+  let dead = false;
+  if (cr.bodies[0].position.y < -4) dead = true;
+  if (upright < -0.2) {
+    cr.uprightFail += dt;
+    if (cr.uprightFail > 2.5) dead = true;
+  } else {
+    cr.uprightFail = Math.max(0, cr.uprightFail - dt * 0.5);
+  }
+  let r = progress * 6.0 + upright * 0.03 + 0.01;
+  if (dead) r -= 1.0;
+  return { r, dead };
+}
+
 function creatureMaxX(cr) {
   let mx = -Infinity;
   for (const b of cr.bodies) if (b.position.x > mx) mx = b.position.x;
@@ -1094,13 +1592,33 @@ let allTimeBest = 0;
 let history = [];
 let startedAt = Date.now();
 
+// learn-mode state (one shared policy, N bodies as parallel environments)
+let trainer = null;      // PPO instance
+let rollouts = [];       // per-env transition buffers, rebuilt each trial
+let pending = [];        // per-env last (obs, action, logp, value) awaiting its reward
+
 function spawnPop(fromNets) {
   // cleanup
   for (const ind of population) if (ind.creature) removeCreature(ind.creature);
   population = [];
-  const shape = netShape();
   const laneCount = CFG.pop;
   const z0 = -(laneCount - 1) * 0.5 * CFG.laneSpacing;
+
+  if (CFG.mode === 'learn') {
+    if (!trainer) trainer = new PPO();
+    rollouts = []; pending = [];
+    for (let i = 0; i < CFG.pop; i++) {
+      const lane = z0 + i * CFG.laneSpacing;
+      const cr = makeCreature(lane, i);
+      cr.prevMeanX = creatureMeanX(cr);
+      population.push({ net: trainer.actor, creature: cr, fitness: 0 });
+      rollouts.push({ obs: [], act: [], logp: [], val: [], rew: [], done: [], bootstrap: 0, deadLast: false });
+      pending.push(null);
+    }
+    return;
+  }
+
+  const shape = netShape();
   for (let i = 0; i < CFG.pop; i++) {
     const net = fromNets && fromNets[i] ? fromNets[i] : new Net(shape);
     const lane = z0 + i * CFG.laneSpacing;
@@ -1140,6 +1658,48 @@ function applySpineStiffness(cr) {
 }
 
 function evaluateStep(dt) {
+  if (CFG.mode === 'learn') { evaluateStepLearn(dt); return; }
+  evaluateStepEvolve(dt);
+}
+
+function evaluateStepLearn(dt) {
+  phaseT += dt * CFG.phaseFreq;
+  for (let e = 0; e < population.length; e++) {
+    const ind = population[e];
+    const cr = ind.creature;
+    if (!cr.alive) continue;
+    const rb = rollouts[e];
+
+    // 1) physics has advanced since we chose the last action — close out that
+    //    transition with the reward it earned before choosing the next one.
+    if (pending[e]) {
+      let { r, dead } = rewardLearn(cr, dt);
+      const a = pending[e].raw;
+      let eff = 0; for (let k = 0; k < a.length; k++) eff += a[k] * a[k];
+      r -= eff * 0.0015;                                  // small effort penalty
+      rb.obs.push(pending[e].obs);
+      rb.act.push(a);
+      rb.logp.push(pending[e].logp);
+      rb.val.push(pending[e].val);
+      rb.rew.push(r);
+      rb.done.push(dead ? 1 : 0);
+      pending[e] = null;
+      if (dead) { cr.alive = false; rb.deadLast = true; continue; }
+    }
+
+    // 2) observe, let the shared policy pick an action, apply it
+    applySpineStiffness(cr);
+    const obs = senseLearn(cr, phaseT);
+    const s = trainer.act(obs);
+    actLearn(cr, s.action);
+    pending[e] = { obs, raw: s.raw, logp: s.logp, val: s.value };
+    cr.ticks++;
+    const mx = creatureMaxX(cr);
+    if (mx > cr.maxX) cr.maxX = mx;
+  }
+}
+
+function evaluateStepEvolve(dt) {
   phaseT += dt * CFG.phaseFreq;
   for (const ind of population) {
     const cr = ind.creature;
@@ -1182,6 +1742,91 @@ function evaluateStep(dt) {
 }
 
 function finalizeGen() {
+  if (CFG.mode === 'learn') { finalizeGenLearn(); return; }
+  finalizeGenEvolve();
+}
+
+// one PPO update per trial: flush the last transitions, compute the policy
+// gradient from everything all N bodies experienced, step the weights.
+function finalizeGenLearn() {
+  for (let e = 0; e < population.length; e++) {
+    const cr = population[e].creature;
+    const rb = rollouts[e];
+    if (pending[e]) {
+      let { r, dead } = rewardLearn(cr, FIXED_STEP);
+      const a = pending[e].raw;
+      let eff = 0; for (let k = 0; k < a.length; k++) eff += a[k] * a[k];
+      r -= eff * 0.0015;
+      rb.obs.push(pending[e].obs);
+      rb.act.push(a);
+      rb.logp.push(pending[e].logp);
+      rb.val.push(pending[e].val);
+      rb.rew.push(r);
+      rb.done.push(dead ? 1 : 0);
+      // truncation bootstrap: still-alive bodies get their own value estimate,
+      // dead ones get 0. this stops the trial cutoff from looking like death.
+      rb.deadLast = dead;
+      rb.bootstrap = dead ? 0 : pending[e].val;
+      pending[e] = null;
+    } else {
+      rb.deadLast = true;
+      rb.bootstrap = 0;
+    }
+  }
+
+  // distance stats, same currency as evolve mode so the graph is comparable
+  let best = 0, meanD = 0;
+  for (const ind of population) {
+    const d = Math.max(0, ind.creature.maxX - ind.creature.startX);
+    ind.fitness = d;
+    if (d > best) best = d;
+    meanD += d;
+  }
+  meanD /= population.length;
+  let variance = 0;
+  for (const ind of population) variance += (ind.fitness - meanD) ** 2;
+  const std = Math.sqrt(variance / population.length);
+
+  const stats = trainer.update(rollouts);
+
+  const newRecord = best > allTimeBest;
+  if (newRecord) allTimeBest = best;
+
+  logLine(
+    `upd ${generation}: dist <b>${best.toFixed(1)}</b> · rew <b>${stats.meanRew.toFixed(3)}</b> · ` +
+    `ent <b>${stats.entropy.toFixed(2)}</b> · vloss <b>${stats.vLoss.toFixed(2)}</b>`,
+    newRecord ? 'rec' : (best > 2 ? 'hi' : '')
+  );
+
+  history.push({ gen: generation, best, mean: meanD, std });
+  if (history.length > 120) history.shift();
+
+  document.getElementById('sBest').textContent    = best.toFixed(2);
+  document.getElementById('sMean').textContent    = meanD.toFixed(2);
+  document.getElementById('sStd').textContent     = std.toFixed(2);
+  document.getElementById('sAllBest').textContent = allTimeBest.toFixed(2);
+  document.getElementById('sGen').textContent     = generation;
+  updateLearnPanel(stats);
+  drawGraph();
+  autosaveChampion();
+
+  generation++;
+  trialTime = 0;
+  phaseT = 0;
+  spawnPop(null);   // respawn bodies, keep the learned policy
+}
+
+function updateLearnPanel(stats) {
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set('sReward', stats.meanRew.toFixed(4));
+  set('sEntropy', stats.entropy.toFixed(3));
+  set('sPLoss', stats.pLoss.toFixed(3));
+  set('sVLoss', stats.vLoss.toFixed(2));
+  set('sKL', stats.klApprox.toFixed(4));
+  set('sUpdates', trainer ? trainer.updates : 0);
+}
+
+function finalizeGenEvolve() {
   for (const ind of population) {
     const cr = ind.creature;
     const dist = cr.maxX - cr.startX;
@@ -1469,7 +2114,10 @@ function reset(fresh = true) {
     generation = 0;
     history = [];
     allTimeBest = 0;
-    logLine('reset · fresh cohort initialized');
+    if (CFG.mode === 'learn') trainer = null;   // fresh reset wipes the learned policy
+    logLine(CFG.mode === 'learn'
+      ? 'reset · fresh policy · weights reinitialized'
+      : 'reset · fresh cohort initialized');
   }
   trialTime = 0;
   phaseT = 0;
@@ -1503,6 +2151,47 @@ document.getElementById('btnStep').addEventListener('click', () => {
   if (population.length) finalizeGen();
 });
 document.getElementById('btnReset').addEventListener('click', () => reset(true));
+
+// ---------- mode (evolve / learn) ----------
+function applyModeUI() {
+  const learn = CFG.mode === 'learn';
+  document.getElementById('btnModeLearn').classList.toggle('active', learn);
+  document.getElementById('btnModeEvolve').classList.toggle('active', !learn);
+  document.getElementById('rlParams').style.display = learn ? '' : 'none';
+  document.getElementById('learnBlock').style.display = learn ? '' : 'none';
+  document.getElementById('footAlgo').textContent = learn
+    ? 'rl: ppo · gae · adam · clipped surrogate'
+    : 'ga: tournament k=3 · elitism=2 · gaussian mutation';
+  document.getElementById('modeBlurb').innerHTML = learn
+    ? '<b style="color:var(--accent)">learn</b> · one shared brain drives all bodies as parallel envs; weights updated by gradient ascent on reward each trial. it genuinely improves within a run.'
+    : '<b style="color:var(--accent)">evolve</b> · a population of independent brains; the best reproduce with mutation each generation. search, not learning.';
+}
+function setMode(mode) {
+  if (CFG.mode === mode) return;
+  CFG.mode = mode;
+  running = false;
+  applyModeUI();
+  reset(true);
+  logLine(mode === 'learn'
+    ? 'mode · reinforcement learning — the policy now learns from reward'
+    : 'mode · neuroevolution — population search across generations', 'hi');
+}
+document.getElementById('btnModeLearn').addEventListener('click', () => setMode('learn'));
+document.getElementById('btnModeEvolve').addEventListener('click', () => setMode('evolve'));
+
+document.getElementById('slLR').addEventListener('input', e => {
+  const v = parseFloat(e.target.value) * 1e-3;
+  CFG.lr = v; CFG.lrValue = v;
+  document.getElementById('lblLR').textContent = v.toExponential(1);
+});
+document.getElementById('slEnt').addEventListener('input', e => {
+  CFG.entCoef = parseFloat(e.target.value);
+  document.getElementById('lblEnt').textContent = CFG.entCoef.toFixed(3);
+});
+document.getElementById('slEpochs').addEventListener('input', e => {
+  CFG.ppoEpochs = parseInt(e.target.value);
+  document.getElementById('lblEpochs').textContent = CFG.ppoEpochs;
+});
 
 function bindSlider(id, lblId, key, fmt) {
   const el = document.getElementById(id);
@@ -1565,9 +2254,28 @@ camBtns.free.addEventListener('click',   () => setCam('free'));
 camBtns.top.addEventListener('click',    () => setCam('top'));
 
 // ---------- brain I/O ----------
-function autosaveKey() { return `decipede_champion_s${CFG.segments}_h${CFG.hidden.join('-')}`; }
+function autosaveKey() {
+  return CFG.mode === 'learn'
+    ? `decipede_policy_s${CFG.segments}_h${CFG.rlHidden.join('-')}`
+    : `decipede_champion_s${CFG.segments}_h${CFG.hidden.join('-')}`;
+}
 
 function buildChampionPayload() {
+  if (CFG.mode === 'learn') {
+    const best = population.slice().sort((a, b) => b.fitness - a.fitness)[0];
+    return {
+      type: 'decipede-policy',
+      version: 1,
+      timestamp: new Date().toISOString(),
+      generation,
+      updates: trainer ? trainer.updates : 0,
+      fitness: best ? best.fitness : 0,
+      allTimeBest,
+      segments: CFG.segments,
+      rlHidden: CFG.rlHidden.slice(),
+      policy: trainer.toJSON(),
+    };
+  }
   const best = population[0];
   return {
     type: 'decipede-brain',
@@ -1602,13 +2310,19 @@ function seedFromNet(net, meta) {
 
 function exportChampion() {
   if (!population.length) { logLine('nothing to export yet'); return; }
-  const pop = [...population].sort((a,b) => b.fitness - a.fitness);
-  const tmpFirst = population[0];
-  population[0] = pop[0];
-  const payload = buildChampionPayload();
-  population[0] = tmpFirst;
+  let payload;
+  if (CFG.mode === 'learn') {
+    payload = buildChampionPayload();     // already picks best by fitness
+  } else {
+    const pop = [...population].sort((a, b) => b.fitness - a.fitness);
+    const tmpFirst = population[0];
+    population[0] = pop[0];
+    payload = buildChampionPayload();
+    population[0] = tmpFirst;
+  }
   const bestScore = Math.max(payload.fitness || 0, payload.allTimeBest || 0);
-  const name = `decipede-brain-s${CFG.segments}-gen${generation}-fit${bestScore.toFixed(1)}.json`;
+  const tag = CFG.mode === 'learn' ? 'policy' : 'brain';
+  const name = `decipede-${tag}-s${CFG.segments}-gen${generation}-fit${bestScore.toFixed(1)}.json`;
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -1617,12 +2331,41 @@ function exportChampion() {
   logLine(`exported <b>${name}</b>`, 'hi');
 }
 
+function importPolicy(data) {
+  if (!data.policy) throw new Error('malformed policy');
+  if (typeof data.segments === 'number' && data.segments !== CFG.segments) {
+    CFG.segments = data.segments;
+    const sl = document.getElementById('slSeg');
+    sl.value = data.segments;
+    document.getElementById('lblSeg').textContent = data.segments;
+  }
+  if (Array.isArray(data.rlHidden)) CFG.rlHidden = data.rlHidden.slice();
+  CFG.mode = 'learn';
+  applyModeUI();
+  trainer = PPO.fromJSON(data.policy);
+  trainer.updates = data.updates || 0;
+  generation  = data.generation || 0;
+  allTimeBest = data.allTimeBest || data.fitness || 0;
+  trialTime = 0;
+  phaseT = 0;
+  buildTerrain(CFG.obstacles);
+  spawnPop(null);   // reuses the just-loaded trainer
+  drawGraph();
+  document.getElementById('sAllBest').textContent = allTimeBest.toFixed(2);
+  document.getElementById('sGen').textContent = generation;
+  document.getElementById('sUpdates').textContent = trainer.updates;
+  logLine(`imported policy · gen <b>${generation}</b> · updates <b>${trainer.updates}</b> · continuing to learn`, 'rec');
+  updateAutosaveLabel();
+}
+
 async function importChampion(file) {
   try {
     const text = await file.text();
     const data = JSON.parse(text);
-    if (data.type !== 'decipede-brain') throw new Error('not a decipede brain file');
+    if (data.type === 'decipede-policy') { importPolicy(data); return; }
+    if (data.type !== 'decipede-brain') throw new Error('not a decipede brain/policy file');
     if (!data.net || !data.net.shape) throw new Error('malformed net');
+    if (CFG.mode !== 'evolve') { CFG.mode = 'evolve'; applyModeUI(); }
 
     if (typeof data.segments === 'number' && data.segments !== CFG.segments) {
       CFG.segments = data.segments;
@@ -1650,8 +2393,9 @@ function autosaveChampion() {
 function loadAutosave() {
   try {
     const raw = localStorage.getItem(autosaveKey());
-    if (!raw) { logLine('no autosave for this body shape'); return; }
+    if (!raw) { logLine('no autosave for this configuration'); return; }
     const data = JSON.parse(raw);
+    if (data.type === 'decipede-policy') { importPolicy(data); return; }
     const net = Net.fromJSON(data.net);
     seedFromNet(net, data);
     logLine(`autosave loaded · gen <b>${data.generation}</b> fit <b>${data.fitness.toFixed(2)}</b>`, 'rec');
@@ -1693,7 +2437,8 @@ document.getElementById('slSeg').addEventListener('change', updateAutosaveLabel)
 
 // ---------- init ----------
 logLine('booted · myriapoda-ignis-digitalis ready');
-logLine('press <b>run</b> to start evolution · adjust params live');
+logLine('mode <b>learn</b> · press <b>run</b> · the policy learns from reward each trial');
+applyModeUI();
 reset(true);
 updateAutosaveLabel();
 document.getElementById('loading').classList.add('hidden');
